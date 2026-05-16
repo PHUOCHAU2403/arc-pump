@@ -11,6 +11,11 @@ const SECONDS_24H = 24 * 60 * 60;
 /**
  * Aggregated 24h stats for a token's BondingCurve.
  * Built on top of useTradeHistory — same query is cached and shared.
+ *
+ * Note: the 24h window cutoff is computed from the newest trade's timestamp
+ * rather than wall-clock Date.now(). This keeps the memo deterministic per
+ * data update (instead of changing on every render) and aligns the window
+ * to actual on-chain activity.
  */
 export function useTokenStats(curveAddress: Address | undefined) {
   const tradesQuery = useTradeHistory(curveAddress, { limit: 500 });
@@ -19,7 +24,8 @@ export function useTokenStats(curveAddress: Address | undefined) {
     if (!tradesQuery.data) return undefined;
 
     const allTrades = tradesQuery.data;
-    const cutoff = Math.floor(Date.now() / 1000) - SECONDS_24H;
+    const anchor = allTrades[0]?.timestamp ?? Math.floor(Date.now() / 1000);
+    const cutoff = anchor - SECONDS_24H;
     const trades24h = allTrades.filter((t) => t.timestamp >= cutoff);
 
     let volume24h = 0n;

@@ -2,14 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
-import type { Address } from "viem";
+import type { Address, Log, PublicClient } from "viem";
 import { arcTestnet } from "@/lib/chains";
 import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
-import { BUY_EVENT, SELL_EVENT, decodeTradeLog } from "@/lib/events";
-import {
-  approxTimestamp,
-  DEFAULT_LOOKBACK_BLOCKS,
-} from "@/lib/blockchain";
+import { decodeTradeLog } from "@/lib/events";
+import { approxTimestamp } from "@/lib/blockchain";
 import type { Trade, TokenInfo } from "@/lib/types";
 
 /** A trade enriched with the token it belongs to (for the global activity feed). */
@@ -22,9 +19,7 @@ export type FeedItem = Trade & {
 
 /**
  * Global activity feed across ALL tokens.
- * Queries every BondingCurve known to the factory and merges trade events.
- *
- * Best for the home page; for a single token use useTradeHistory directly.
+ * Uses chunked getLogs (Arc RPC has a 413 limit on big windows).
  */
 export function useActivityFeed(limit: number = 30) {
   const client = usePublicClient({ chainId: arcTestnet.id });
@@ -32,11 +27,10 @@ export function useActivityFeed(limit: number = 30) {
   return useQuery<FeedItem[]>({
     queryKey: ["activityFeed", limit],
     enabled: !!client,
-    refetchInterval: 15_000,
+    refetchInterval: 20_000,
     queryFn: async () => {
       if (!client) return [];
 
-      // 1. Get all tokens from factory.
       const total = (await client.readContract({
         address: FACTORY_ADDRESS,
         abi: FACTORY_ABI,
@@ -51,36 +45,26 @@ export function useActivityFeed(limit: number = 30) {
         args: [0n, total],
       })) as TokenInfo[];
 
-      // 2. Anchor for timestamp approximation.
       const latest = await client.getBlock({ blockTag: "latest" });
       const head = latest.number;
-      const fromBlock =
-        head > DEFAULT_LOOKBACK_BLOCKS
-          ? head - DEFAULT_LOOKBACK_BLOCKS
-          : 0n;
+      const LOOKBACK = 5_000n;
+      const CHUNK = 500n;
+      const fromBlock = head > LOOKBACK ? head - LOOKBACK : 0n;
 
-      // 3. Fetch logs for every curve in parallel.
+      // Fetch logs for every curve in parallel — each curve query is itself chunked.
       const logsPerToken = await Promise.all(
         allTokens.map(async (info) => {
-          const [buys, sells] = await Promise.all([
-            client.getLogs({
-              address: info.curve,
-              event: BUY_EVENT,
-              fromBlock,
-              toBlock: head,
-            }),
-            client.getLogs({
-              address: info.curve,
-              event: SELL_EVENT,
-              fromBlock,
-              toBlock: head,
-            }),
-          ]);
-          return { info, logs: [...buys, ...sells] };
+          const logs = await chunkedGetLogs(
+            client,
+            info.curve,
+            fromBlock,
+            head,
+            CHUNK
+          );
+          return { info, logs };
         })
       );
 
-      // 4. Merge + decode + enrich with token metadata.
       const feed: FeedItem[] = [];
       for (const { info, logs } of logsPerToken) {
         for (const log of logs) {
@@ -101,7 +85,6 @@ export function useActivityFeed(limit: number = 30) {
         }
       }
 
-      // 5. Sort newest first.
       feed.sort((a, b) => {
         if (a.blockNumber !== b.blockNumber) {
           return Number(b.blockNumber - a.blockNumber);
@@ -112,4 +95,40 @@ export function useActivityFeed(limit: number = 30) {
       return feed.slice(0, limit);
     },
   });
+}
+
+async function chunkedGetLogs(
+  client: PublicClient,
+  address: Address,
+  fromBlock: bigint,
+  toBlock: bigint,
+  chunkSize: bigint
+): Promise<Log[]> {
+  const ranges: Array<{ from: bigint; to: bigint }> = [];
+  let from = fromBlock;
+  while (from <= toBlock) {
+    const to = from + chunkSize - 1n > toBlock ? toBlock : from + chunkSize - 1n;
+    ranges.push({ from, to });
+    from = to + 1n;
+  }
+
+  const results = await Promise.all(
+    ranges.map(async ({ from, to }) => {
+      try {
+        return await client.getLogs({
+          address,
+          fromBlock: from,
+          toBlock: to,
+        });
+      } catch (err) {
+        console.warn(
+          `[useActivityFeed] getLogs failed for ${from}-${to}:`,
+          err
+        );
+        return [] as Log[];
+      }
+    })
+  );
+
+  return results.flat();
 }
