@@ -14,6 +14,7 @@ import { CURVE_ABI } from "@/lib/curve";
 import { TOKEN_ABI } from "@/lib/token";
 import { arcTestnet } from "@/lib/chains";
 import { Navbar } from "@/components/Navbar";
+import { TradeFeed } from "@/components/TradeFeed";
 
 export default function TokenPage({
   params,
@@ -399,6 +400,8 @@ export default function TokenPage({
             </div>
           </aside>
         </section>
+
+        <TradeFeed curveAddress={curve} symbol={symbol as string | undefined} />
       </main>
     </div>
   );
