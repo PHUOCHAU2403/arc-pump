@@ -2,6 +2,17 @@
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
 
+## Frontend environment
+
+The create-token form can upload images to Pinata when this public environment
+variable is configured:
+
+```shell
+NEXT_PUBLIC_PINATA_JWT=your_pinata_jwt
+```
+
+If the variable is missing, the form falls back to pasting a direct image URL.
+
 Foundry consists of:
 
 - **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).

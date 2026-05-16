@@ -135,12 +135,10 @@ export default function CreatePage() {
                 hint="Up to 10 characters. Uppercase only."
                 mono
               />
-              <Field
-                label="Image URL"
-                placeholder="https://"
+              <ImageField
                 value={imageURI}
                 onChange={setImageURI}
-                hint="Optional. Any direct image link (PNG, JPG, SVG)."
+                symbol={symbol}
               />
               <FieldTextarea
                 label="Description"
@@ -312,6 +310,180 @@ function FieldTextarea({
   );
 }
 
+function ImageField({
+  value,
+  onChange,
+  symbol,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  symbol: string;
+}) {
+  const pinataJwt = process.env.NEXT_PUBLIC_PINATA_JWT;
+  const [mode, setMode] = useState<"upload" | "url">(
+    pinataJwt ? "upload" : "url"
+  );
+  const [preview, setPreview] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadError("");
+
+    if (!isSupportedImage(file)) {
+      setUploadError("Use PNG, JPG, SVG, or WebP.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("Image must be 5MB or smaller.");
+      return;
+    }
+
+    if (!pinataJwt) {
+      setMode("url");
+      setUploadError("Pinata JWT missing. Paste an image URL instead.");
+      return;
+    }
+
+    const nextPreview = URL.createObjectURL(file);
+    setPreview((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return nextPreview;
+    });
+
+    setIsUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const response = await fetch(
+        "https://api.pinata.cloud/pinning/pinFileToIPFS",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${pinataJwt}` },
+          body: form,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Pinata upload failed with ${response.status}.`);
+      }
+
+      const body: unknown = await response.json();
+      const hash = readIpfsHash(body);
+      if (!hash) throw new Error("Pinata response did not include an IPFS hash.");
+
+      onChange(`https://gateway.pinata.cloud/ipfs/${hash}`);
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : "Upload failed. Paste a URL instead."
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const displayImg =
+    preview ||
+    value ||
+    `https://api.dicebear.com/9.x/initials/svg?seed=${symbol || "preview"}&backgroundColor=ebebe3&textColor=0a0a0a`;
+
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-2">
+        <label className="text-sm font-medium text-ink">Image</label>
+        <span className="text-[11px] text-ink-faint font-mono">max 5MB</span>
+      </div>
+
+      {mode === "upload" ? (
+        <div>
+          <label
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleFile(e.dataTransfer.files[0]);
+            }}
+            className="flex items-center gap-4 border border-line border-dashed p-4 cursor-pointer hover:border-line-strong"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={displayImg}
+              alt="token preview"
+              className="w-16 h-16 object-cover border border-line"
+            />
+            <div className="min-w-0">
+              <div className="text-sm text-ink">
+                {isUploading
+                  ? "Uploading to IPFS..."
+                  : value
+                    ? "Image pinned to IPFS."
+                    : "Drop image or click to select."}
+              </div>
+              <div className="text-[11px] text-ink-faint mt-1">
+                PNG, JPG, SVG, or WebP.
+              </div>
+            </div>
+            <input
+              type="file"
+              accept=".png,.jpg,.jpeg,.svg,.webp,image/png,image/jpeg,image/svg+xml,image/webp"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => setMode("url")}
+            className="link-quiet text-xs mt-3"
+          >
+            Or paste URL
+          </button>
+        </div>
+      ) : (
+        <div>
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="https://"
+            className="w-full px-0 py-3 bg-transparent border-b border-line focus:outline-none focus:border-ink text-base placeholder:text-ink-faint"
+          />
+          <div className="flex justify-between gap-4 mt-2">
+            <p className="text-[11px] text-ink-faint">
+              Optional. Any direct image link.
+            </p>
+            {pinataJwt && (
+              <button
+                type="button"
+                onClick={() => setMode("upload")}
+                className="link-quiet text-xs"
+              >
+                Upload file
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!pinataJwt && (
+        <p className="text-[11px] text-ink-faint mt-2">
+          Pinata upload is disabled until NEXT_PUBLIC_PINATA_JWT is configured.
+        </p>
+      )}
+      {uploadError && (
+        <p className="text-[11px] text-bad mt-2">{uploadError}</p>
+      )}
+    </div>
+  );
+}
+
 function Spec({
   label,
   value,
@@ -380,4 +552,20 @@ function parseError(msg: string): string {
     return "Wallet balance is too low for fee plus gas.";
   }
   return msg.slice(0, 140);
+}
+
+function isSupportedImage(file: File): boolean {
+  const allowedTypes = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/svg+xml",
+    "image/webp",
+  ]);
+  return allowedTypes.has(file.type);
+}
+
+function readIpfsHash(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const hash = (value as { IpfsHash?: unknown }).IpfsHash;
+  return typeof hash === "string" ? hash : undefined;
 }
