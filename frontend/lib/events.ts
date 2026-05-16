@@ -1,53 +1,24 @@
 // Event ABIs + log-decoding helpers.
+//
+// We define events via parseAbiItem (viem helper) instead of raw object
+// literals — this guarantees the runtime shape that viem's getLogs `event`
+// param expects.
 
-import {
-  decodeEventLog,
-  type Address,
-  type Log,
-} from "viem";
+import { decodeEventLog, parseAbiItem, type Log } from "viem";
+import type { Address } from "viem";
 import type { Trade } from "./types";
 
-/** Standalone Buy event ABI (so we can pass it to getLogs `event`). */
-export const BUY_EVENT = {
-  type: "event",
-  name: "Buy",
-  inputs: [
-    { name: "buyer", type: "address", indexed: true },
-    { name: "tokensOut", type: "uint256", indexed: false },
-    { name: "usdcIn", type: "uint256", indexed: false },
-  ],
-} as const;
+export const BUY_EVENT = parseAbiItem(
+  "event Buy(address indexed buyer, uint256 tokensOut, uint256 usdcIn)"
+);
 
-/** Standalone Sell event ABI. */
-export const SELL_EVENT = {
-  type: "event",
-  name: "Sell",
-  inputs: [
-    { name: "seller", type: "address", indexed: true },
-    { name: "tokensIn", type: "uint256", indexed: false },
-    { name: "usdcOut", type: "uint256", indexed: false },
-  ],
-} as const;
+export const SELL_EVENT = parseAbiItem(
+  "event Sell(address indexed seller, uint256 tokensIn, uint256 usdcOut)"
+);
 
-/** TokenCreated event ABI (for factory-level indexing). */
-export const TOKEN_CREATED_EVENT = {
-  type: "event",
-  name: "TokenCreated",
-  inputs: [
-    { name: "id", type: "uint256", indexed: true },
-    { name: "token", type: "address", indexed: true },
-    { name: "creator", type: "address", indexed: true },
-    { name: "curve", type: "address", indexed: false },
-    { name: "name", type: "string", indexed: false },
-    { name: "symbol", type: "string", indexed: false },
-    { name: "imageURI", type: "string", indexed: false },
-  ],
-} as const;
-
-const BUY_TOPIC =
-  "0x" +
-  // keccak256("Buy(address,uint256,uint256)") — let viem compute at runtime instead.
-  "" as `0x${string}`; // placeholder; we use viem to filter by event signature.
+export const TOKEN_CREATED_EVENT = parseAbiItem(
+  "event TokenCreated(uint256 indexed id, address indexed token, address indexed creator, address curve, string name, string symbol, string imageURI)"
+);
 
 /**
  * Decode a Buy/Sell log into a structured Trade.
@@ -57,8 +28,8 @@ export function decodeTradeLog(
   log: Log,
   approxTimestamp: number
 ): Trade | null {
+  // Try Buy first.
   try {
-    // Try Buy first
     const buy = decodeEventLog({
       abi: [BUY_EVENT],
       data: log.data,
@@ -82,9 +53,10 @@ export function decodeTradeLog(
       };
     }
   } catch {
-    // not a Buy event, try Sell
+    // not a Buy event — fall through
   }
 
+  // Try Sell.
   try {
     const sell = decodeEventLog({
       abi: [SELL_EVENT],
@@ -109,7 +81,7 @@ export function decodeTradeLog(
       };
     }
   } catch {
-    // not a Sell event either
+    // not a Sell event — return null below
   }
 
   return null;
@@ -121,6 +93,5 @@ export function decodeTradeLog(
  */
 export function tradePrice(trade: Trade): number {
   if (trade.tokenAmount === 0n) return 0;
-  // (usdcAmount / 1e18) / (tokenAmount / 1e18) = usdcAmount / tokenAmount
   return Number(trade.usdcAmount) / Number(trade.tokenAmount);
 }
