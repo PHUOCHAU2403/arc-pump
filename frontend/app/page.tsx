@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useReadContract } from "wagmi";
 import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
 import { Navbar } from "@/components/Navbar";
@@ -16,6 +17,8 @@ type TokenInfo = {
 };
 
 export default function Home() {
+  const [search, setSearch] = useState("");
+
   const { data: totalCount } = useReadContract({
     address: FACTORY_ADDRESS,
     abi: FACTORY_ABI,
@@ -31,8 +34,23 @@ export default function Home() {
     query: { refetchInterval: 8000 },
   });
 
-  const tokens = (tokensData as TokenInfo[] | undefined) || [];
-  const sorted = [...tokens].reverse();
+  const tokens = useMemo(
+    () => (tokensData as TokenInfo[] | undefined) || [],
+    [tokensData]
+  );
+  const sorted = useMemo(() => [...tokens].reverse(), [tokens]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return sorted;
+
+    return sorted.filter((token) => {
+      return (
+        token.name.toLowerCase().includes(query) ||
+        token.symbol.toLowerCase().includes(query) ||
+        token.token.toLowerCase().includes(query)
+      );
+    });
+  }, [search, sorted]);
 
   return (
     <div className="min-h-screen">
@@ -94,21 +112,38 @@ export default function Home() {
 
       {/* ============ TOKEN LIST ============ */}
       <section className="max-w-6xl mx-auto px-6 sm:px-8 py-20 sm:py-28">
-        <div className="flex justify-between items-end mb-10 pb-6 border-b border-line">
-          <div>
-            <div className="type-kicker mb-2">Index</div>
-            <h2 className="type-headline">Recent launches</h2>
+        <div className="flex flex-col gap-6 mb-10 pb-6 border-b border-line">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+            <div>
+              <div className="type-kicker mb-2">Index</div>
+              <h2 className="type-headline">Recent launches</h2>
+            </div>
+            <div className="text-sm text-ink-mute font-mono">
+              {String(filtered.length).padStart(3, "0")} shown
+            </div>
           </div>
-          <div className="text-sm text-ink-mute font-mono">
-            {String(sorted.length).padStart(3, "0")} total
+
+          <div className="max-w-sm">
+            <label className="type-kicker mb-2 block text-[10px]">
+              Search tokens
+            </label>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name, ticker, or address"
+              className="w-full bg-transparent border-b border-line py-3 text-sm focus:outline-none focus:border-ink placeholder:text-ink-faint"
+            />
           </div>
         </div>
 
-        {sorted.length === 0 ? (
+        {tokens.length === 0 ? (
           <EmptyState />
+        ) : filtered.length === 0 ? (
+          <SearchEmptyState query={search} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-line border border-line">
-            {sorted.map((t) => (
+            {filtered.map((t) => (
               <TokenRow key={t.token} token={t} />
             ))}
           </div>
@@ -199,6 +234,19 @@ function EmptyState() {
       >
         Launch the first token →
       </Link>
+    </div>
+  );
+}
+
+function SearchEmptyState({ query }: { query: string }) {
+  return (
+    <div className="border border-line border-dashed py-16 px-6 text-center">
+      <div className="type-kicker mb-3">No match</div>
+      <h3 className="type-headline mb-3">No market matches that search.</h3>
+      <p className="text-ink-mute text-sm max-w-md mx-auto">
+        Try a token name, ticker, or contract fragment. Current query:{" "}
+        <span className="font-mono text-ink">{query}</span>.
+      </p>
     </div>
   );
 }
