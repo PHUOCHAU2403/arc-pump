@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+@theme {
+  /* Warm off-white system — Anthropic / Paradigm vibe */
+  --color-paper: #fafaf7;
+  --color-paper-soft: #f4f4ee;
+  --color-paper-mute: #ebebe3;
+  --color-ink: #0a0a0a;
+  --color-ink-soft: #2a2a2a;
+  --color-ink-mute: #6b6b6b;
+  --color-ink-faint: #9a9a92;
+  --color-line: #e5e5dd;
+  --color-line-strong: #cfcfc4;
+
+  /* Single accent — muted warm tone */
+  --color-accent: #c2410c;
+  --color-accent-soft: #fed7aa;
+
+  /* Status (sparingly) */
+  --color-good: #166534;
+  --color-bad: #991b1b;
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11", "calt";
+}
+
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+  letter-spacing: -0.025em;
+  font-feature-settings: "ss01";
+}
+
+.font-mono {
+  font-family: var(--font-mono), monospace;
+}
+
+/* Editorial type scale */
+.type-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+}
+
+.type-headline {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-weight: 500;
+}
+
+.type-kicker {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--color-ink-mute);
+}
+
+.type-mono-stat {
+  font-family: var(--font-mono), monospace;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.01em;
+}
+
+/* Subtle, calculated transitions */
+button,
+a,
+input,
+textarea {
+  transition:
+    color 200ms ease-out,
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    transform 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+
+/* Underline with offset (editorial link style) */
+.link-quiet {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--color-line-strong);
+  text-underline-offset: 3px;
+}
+.link-quiet:hover {
+  text-decoration-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Hairline grid pattern (Bauhaus reference) */
+.grid-paper {
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+/* Scroll */
+html {
+  scroll-behavior: smooth;
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-paper);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border: 3px solid var(--color-paper);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-mute);
+}
+::selection {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Quiet card */
+.card {
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+}
+.card:hover {
+  border-color: var(--color-line-strong);
+}
+
+/* Primary button */
+.btn-primary {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border: 1px solid var(--color-ink);
+}
+.btn-primary:hover {
+  background: var(--color-ink-soft);
+}
+.btn-primary:disabled {
+  background: var(--color-ink-faint);
+  border-color: var(--color-ink-faint);
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+}
+.btn-ghost:hover {
+  border-color: var(--color-ink);
+  background: var(--color-paper-soft);
+}
+
+/* Pulse for live indicator */
+.dot-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-good);
+  display: inline-block;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

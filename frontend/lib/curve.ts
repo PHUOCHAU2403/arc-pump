@@ -1,0 +1,76 @@
+export const CURVE_ABI = [
+  {
+    type: "function",
+    name: "buy",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "sell",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getBuyCost",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getSellReturn",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "spotPrice",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "maxSupply",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "reserve",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "memeToken",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "Buy",
+    inputs: [
+      { name: "buyer", type: "address", indexed: true },
+      { name: "tokensOut", type: "uint256", indexed: false },
+      { name: "usdcIn", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Sell",
+    inputs: [
+      { name: "seller", type: "address", indexed: true },
+      { name: "tokensIn", type: "uint256", indexed: false },
+      { name: "usdcOut", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
