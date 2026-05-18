@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { parseAbiItem, zeroAddress, type Address } from "viem";
+import { parseAbiItem, zeroAddress, type Address, type Log } from "viem";
 import { usePublicClient } from "wagmi";
 import { arcTestnet } from "@/lib/chains";
 import { formatTokens, shortAddr } from "@/lib/blockchain";
@@ -9,7 +9,10 @@ import { formatTokens, shortAddr } from "@/lib/blockchain";
 const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)"
 );
-const LOG_CHUNK_SIZE = 50_000n;
+// Arc Testnet RPC rejects eth_getLogs ranges > 10k blocks.
+const LOG_CHUNK_SIZE = 5_000n;
+// Lookback ~7h on Arc (500ms blocks). MVP — for full history we'd need an indexer.
+const LOG_LOOKBACK_BLOCKS = 50_000n;
 
 type Holder = {
   address: Address;
@@ -39,26 +42,48 @@ export function HoldersList({
       if (!client) return [];
 
       const latest = await client.getBlockNumber();
-      const balances = new Map<string, bigint>();
-      let fromBlock = 0n;
+      const fromBlockStart =
+        latest > LOG_LOOKBACK_BLOCKS ? latest - LOG_LOOKBACK_BLOCKS : 0n;
 
-      while (fromBlock <= latest) {
-        const toBlock =
-          fromBlock + LOG_CHUNK_SIZE - 1n > latest
+      // Build chunk ranges (5k each).
+      const ranges: Array<{ from: bigint; to: bigint }> = [];
+      let cursor = fromBlockStart;
+      while (cursor <= latest) {
+        const to =
+          cursor + LOG_CHUNK_SIZE - 1n > latest
             ? latest
-            : fromBlock + LOG_CHUNK_SIZE - 1n;
+            : cursor + LOG_CHUNK_SIZE - 1n;
+        ranges.push({ from: cursor, to });
+        cursor = to + 1n;
+      }
 
-        const logs = await client.getLogs({
-          address: tokenAddress,
-          event: TRANSFER_EVENT,
-          fromBlock,
-          toBlock,
-        });
+      // Fetch all chunks in parallel; tolerate per-chunk failures.
+      const chunkResults = await Promise.all(
+        ranges.map(async ({ from, to }) => {
+          try {
+            return await client.getLogs({
+              address: tokenAddress,
+              event: TRANSFER_EVENT,
+              fromBlock: from,
+              toBlock: to,
+            });
+          } catch (err) {
+            console.warn(
+              `[HoldersList] getLogs failed for ${from}-${to}:`,
+              err
+            );
+            return [] as Log[];
+          }
+        })
+      );
 
+      const balances = new Map<string, bigint>();
+      for (const logs of chunkResults) {
         for (const log of logs) {
-          const from = log.args.from;
-          const to = log.args.to;
-          const value = log.args.value;
+          const args = (log as { args?: { from?: Address; to?: Address; value?: bigint } }).args;
+          const from = args?.from;
+          const to = args?.to;
+          const value = args?.value;
           if (!from || !to || value === undefined) continue;
 
           if (from !== zeroAddress) {
@@ -71,8 +96,6 @@ export function HoldersList({
             balances.set(key, (balances.get(key) ?? 0n) + value);
           }
         }
-
-        fromBlock = toBlock + 1n;
       }
 
       return Array.from(balances.entries())
