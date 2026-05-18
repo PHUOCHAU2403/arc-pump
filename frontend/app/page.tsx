@@ -211,6 +211,9 @@ function Footer() {
           Arc<span className="italic text-accent">·</span>Pump
         </div>
         <div className="flex flex-wrap gap-6">
+          <Link href="/portfolio" className="link-quiet">
+            Portfolio
+          </Link>
           <a
             href={`https://testnet.arcscan.app/address/${FACTORY_ADDRESS}`}
             target="_blank"
