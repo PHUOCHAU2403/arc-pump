@@ -9,11 +9,20 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
+import { FACTORY_V2_ABI, FACTORY_V2_ADDRESS } from "@/lib/factory";
 import { arcTestnet } from "@/lib/chains";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Navbar } from "@/components/Navbar";
 import { decodeEventLog, formatEther } from "viem";
+
+const WEI = 10n ** 18n;
+const DEFAULT_MAX_SUPPLY_TOKENS = 1_000_000;
+const MIN_MAX_SUPPLY_TOKENS = 1_000;
+const MAX_MAX_SUPPLY_TOKENS = 1_000_000_000_000; // 1T
+const DEFAULT_FEE_BPS = 100; // 1%
+const MAX_FEE_BPS = 500; // 5%
+
+const FEE_PRESETS = [0, 50, 100, 200, 500]; // basis points
 
 export default function CreatePage() {
   const router = useRouter();
@@ -25,12 +34,22 @@ export default function CreatePage() {
   const [symbol, setSymbol] = useState("");
   const [imageURI, setImageURI] = useState("");
   const [description, setDescription] = useState("");
+  const [maxSupplyInput, setMaxSupplyInput] = useState(
+    String(DEFAULT_MAX_SUPPLY_TOKENS)
+  );
+  const [feeBps, setFeeBps] = useState(DEFAULT_FEE_BPS);
 
   const { data: feeWei } = useReadContract({
-    address: FACTORY_ADDRESS,
-    abi: FACTORY_ABI,
+    address: FACTORY_V2_ADDRESS,
+    abi: FACTORY_V2_ABI,
     functionName: "createFee",
   });
+
+  const maxSupplyTokens = parseSupply(maxSupplyInput);
+  const maxSupplyValid =
+    maxSupplyTokens >= MIN_MAX_SUPPLY_TOKENS &&
+    maxSupplyTokens <= MAX_MAX_SUPPLY_TOKENS;
+  const maxSupplyWei = BigInt(maxSupplyTokens) * WEI;
 
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const {
@@ -44,7 +63,7 @@ export default function CreatePage() {
     for (const log of receipt.logs) {
       try {
         const parsed = decodeEventLog({
-          abi: FACTORY_ABI,
+          abi: FACTORY_V2_ABI,
           data: log.data,
           topics: log.topics,
         });
@@ -61,17 +80,19 @@ export default function CreatePage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feeWei) return;
+    if (!feeWei || !maxSupplyValid) return;
 
     writeContract({
-      address: FACTORY_ADDRESS,
-      abi: FACTORY_ABI,
+      address: FACTORY_V2_ADDRESS,
+      abi: FACTORY_V2_ABI,
       functionName: "createToken",
       args: [
         name.trim(),
         symbol.trim().toUpperCase(),
         imageURI.trim(),
         description.trim(),
+        maxSupplyWei,
+        feeBps,
       ],
       value: feeWei as bigint,
     });
@@ -86,6 +107,9 @@ export default function CreatePage() {
     name.trim().length > 0 &&
     symbol.trim().length > 0 &&
     symbol.trim().length <= 10 &&
+    maxSupplyValid &&
+    feeBps <= MAX_FEE_BPS &&
+    feeBps >= 0 &&
     !isPending &&
     !isConfirming;
 
@@ -147,6 +171,27 @@ export default function CreatePage() {
                 onChange={setDescription}
                 max={280}
               />
+
+              <div className="pt-6 border-t border-line space-y-6">
+                <div className="type-kicker">Tokenomics</div>
+
+                <Field
+                  label="Max supply"
+                  placeholder="1000000"
+                  value={maxSupplyInput}
+                  onChange={(v) =>
+                    setMaxSupplyInput(v.replace(/[^0-9]/g, ""))
+                  }
+                  hint={
+                    maxSupplyValid
+                      ? `${formatSupplyHint(maxSupplyTokens)} tokens · cap on the bonding curve`
+                      : `Must be between ${MIN_MAX_SUPPLY_TOKENS.toLocaleString()} and ${MAX_MAX_SUPPLY_TOKENS.toLocaleString()}`
+                  }
+                  mono
+                />
+
+                <FeeSelector value={feeBps} onChange={setFeeBps} />
+              </div>
 
               <div className="pt-8 border-t border-line">
                 <div className="flex justify-between items-baseline mb-6">
@@ -218,7 +263,15 @@ export default function CreatePage() {
 
               <div className="space-y-4 text-sm">
                 <Spec label="Curve" value="Linear" />
-                <Spec label="Max supply" value="1,000,000" mono />
+                <Spec
+                  label="Max supply"
+                  value={
+                    maxSupplyValid
+                      ? formatSupplyHint(maxSupplyTokens)
+                      : "—"
+                  }
+                  mono
+                />
                 <Spec label="Start price" value="0 USDC" mono />
                 <Spec
                   label="Slope"
@@ -226,8 +279,18 @@ export default function CreatePage() {
                   mono
                   hint="USDC per token per token sold"
                 />
-                <Spec label="Trading fee" value="0%" mono />
+                <Spec
+                  label="Trade fee"
+                  value={`${(feeBps / 100).toFixed(2)}%`}
+                  mono
+                  hint={
+                    feeBps > 0
+                      ? "80% to you, 20% to protocol"
+                      : "Free trades"
+                  }
+                />
                 <Spec label="Network" value="Arc Testnet" />
+                <Spec label="Factory" value="v2" mono />
               </div>
             </aside>
           </div>
@@ -548,10 +611,98 @@ function parseError(msg: string): string {
   if (msg.includes("InsufficientFee")) {
     return "Insufficient USDC for launch fee.";
   }
+  if (msg.includes("MaxSupplyOutOfRange")) {
+    return "Max supply outside allowed range.";
+  }
+  if (msg.includes("TradeFeeTooHigh")) {
+    return "Trade fee exceeds 5% cap.";
+  }
   if (msg.includes("insufficient funds")) {
     return "Wallet balance is too low for fee plus gas.";
   }
   return msg.slice(0, 140);
+}
+
+function parseSupply(input: string): number {
+  const cleaned = input.replace(/[^0-9]/g, "");
+  if (!cleaned) return 0;
+  return Number(cleaned);
+}
+
+function formatSupplyHint(n: number): string {
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return n.toLocaleString();
+}
+
+function FeeSelector({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (bps: number) => void;
+}) {
+  const [custom, setCustom] = useState(
+    FEE_PRESETS.includes(value) ? "" : (value / 100).toFixed(2)
+  );
+
+  const handleCustom = (raw: string) => {
+    setCustom(raw);
+    const num = Number(raw);
+    if (Number.isFinite(num) && num >= 0 && num <= 5) {
+      onChange(Math.round(num * 100));
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-2">
+        <label className="text-sm font-medium text-ink">Trade fee</label>
+        <span className="text-[11px] text-ink-faint font-mono">
+          {(value / 100).toFixed(2)}%
+        </span>
+      </div>
+      <div className="grid grid-cols-5 gap-px bg-line border border-line mb-3">
+        {FEE_PRESETS.map((bps) => (
+          <button
+            key={bps}
+            type="button"
+            onClick={() => {
+              onChange(bps);
+              setCustom("");
+            }}
+            className={`py-2 text-xs font-mono ${
+              value === bps
+                ? "bg-paper-soft text-ink"
+                : "bg-paper text-ink-mute hover:text-ink"
+            }`}
+          >
+            {bps === 0 ? "0%" : `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 border-b border-line">
+        <input
+          type="number"
+          min="0"
+          max="5"
+          step="0.1"
+          value={custom}
+          onChange={(e) => handleCustom(e.target.value)}
+          placeholder="Custom (0–5)"
+          className="flex-1 bg-transparent py-2 text-sm font-mono focus:outline-none placeholder:text-ink-faint"
+        />
+        <span className="text-xs text-ink-mute font-mono">%</span>
+      </div>
+      <p className="text-[11px] text-ink-faint mt-2 leading-relaxed">
+        {value > 0
+          ? "Charged on each buy and sell. You receive 80% of fees, protocol receives 20%."
+          : "Free trades for users. You earn nothing from trade flow."}
+      </p>
+    </div>
+  );
 }
 
 function isSupportedImage(file: File): boolean {

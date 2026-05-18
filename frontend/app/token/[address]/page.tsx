@@ -12,10 +12,16 @@ import {
 } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { PublicClient } from "viem";
-import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
-import { CURVE_ABI } from "@/lib/curve";
+import {
+  FACTORY_V1_ABI,
+  FACTORY_V1_ADDRESS,
+  FACTORY_V2_ABI,
+  FACTORY_V2_ADDRESS,
+} from "@/lib/factory";
+import { CURVE_V1_ABI, CURVE_V2_ABI } from "@/lib/curve";
 import { TOKEN_ABI } from "@/lib/token";
 import { arcTestnet } from "@/lib/chains";
+import { formatUsdc } from "@/lib/blockchain";
 import { Navbar } from "@/components/Navbar";
 import { HoldersList } from "@/components/HoldersList";
 import { PriceChart } from "@/components/PriceChart";
@@ -36,14 +42,35 @@ export default function TokenPage({
   const onArc = chainId === arcTestnet.id;
   const publicClient = usePublicClient({ chainId: arcTestnet.id });
 
-  // ============ READS ============
-  const { data: curveAddress } = useReadContract({
-    address: FACTORY_ADDRESS,
-    abi: FACTORY_ABI,
+  // ============ VERSION DETECTION ============
+  // Ask both factories for this token's curve. Whichever returns non-zero
+  // tells us which version (and thus which curve ABI) to use.
+  const { data: v2CurveRaw } = useReadContract({
+    address: FACTORY_V2_ADDRESS,
+    abi: FACTORY_V2_ABI,
     functionName: "curveOf",
     args: [tokenAddress],
   });
-  const curve = curveAddress as `0x${string}` | undefined;
+  const { data: v1CurveRaw } = useReadContract({
+    address: FACTORY_V1_ADDRESS,
+    abi: FACTORY_V1_ABI,
+    functionName: "curveOf",
+    args: [tokenAddress],
+  });
+
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const v2Curve =
+    v2CurveRaw && (v2CurveRaw as string).toLowerCase() !== ZERO
+      ? (v2CurveRaw as `0x${string}`)
+      : undefined;
+  const v1Curve =
+    v1CurveRaw && (v1CurveRaw as string).toLowerCase() !== ZERO
+      ? (v1CurveRaw as `0x${string}`)
+      : undefined;
+
+  const tokenVersion: 1 | 2 | undefined = v2Curve ? 2 : v1Curve ? 1 : undefined;
+  const curve = v2Curve ?? v1Curve;
+  const CURVE_ABI = tokenVersion === 2 ? CURVE_V2_ABI : CURVE_V1_ABI;
 
   const { data: name } = useReadContract({
     address: tokenAddress,
@@ -95,6 +122,33 @@ export default function TokenPage({
     functionName: "reserve",
     query: { enabled: !!curve, refetchInterval: 5000 },
   });
+
+  // v2-only reads — undefined for v1 tokens.
+  const { data: tradeFeeBps } = useReadContract({
+    address: curve,
+    abi: CURVE_V2_ABI,
+    functionName: "tradeFeeBps",
+    query: { enabled: !!curve && tokenVersion === 2 },
+  });
+  const { data: creatorAddr } = useReadContract({
+    address: curve,
+    abi: CURVE_V2_ABI,
+    functionName: "creator",
+    query: { enabled: !!curve && tokenVersion === 2 },
+  });
+  const { data: creatorFeesAccrued, refetch: refetchCreatorFees } =
+    useReadContract({
+      address: curve,
+      abi: CURVE_V2_ABI,
+      functionName: "creatorFeesAccrued",
+      query: { enabled: !!curve && tokenVersion === 2, refetchInterval: 8000 },
+    });
+
+  const isCreator =
+    tokenVersion === 2 &&
+    !!user &&
+    !!creatorAddr &&
+    (user as string).toLowerCase() === (creatorAddr as string).toLowerCase();
 
   // ============ STATE ============
   const [mode, setMode] = useState<"buy" | "sell">("buy");
@@ -156,6 +210,36 @@ export default function TokenPage({
       refetchBalance();
     }
   }, [txSuccess, refetchSupply, refetchBalance]);
+
+  // Separate write hook for the creator fee claim flow — isolates its
+  // pending/error state from the buy/sell flow so the trade UI doesn't
+  // disable while a claim is in flight.
+  const {
+    writeContract: writeClaim,
+    data: claimTxHash,
+    isPending: isClaimSubmitting,
+    error: claimError,
+    reset: resetClaim,
+  } = useWriteContract();
+  const { isLoading: isClaimConfirming, isSuccess: claimSuccess } =
+    useWaitForTransactionReceipt({ hash: claimTxHash });
+
+  useEffect(() => {
+    if (claimSuccess) {
+      refetchCreatorFees();
+    }
+  }, [claimSuccess, refetchCreatorFees]);
+
+  const handleClaimCreatorFees = () => {
+    if (!curve || !user || tokenVersion !== 2) return;
+    resetClaim();
+    writeClaim({
+      address: curve,
+      abi: CURVE_V2_ABI,
+      functionName: "claimCreatorFees",
+      args: [user],
+    });
+  };
 
   const handleTrade = () => {
     if (!curve || tokenAmount <= 0n) return;
@@ -508,6 +592,18 @@ export default function TokenPage({
               )}
             </div>
 
+            {isCreator && (
+              <CreatorPanel
+                feesAccrued={(creatorFeesAccrued as bigint | undefined) ?? 0n}
+                onClaim={handleClaimCreatorFees}
+                isSubmitting={isClaimSubmitting}
+                isConfirming={isClaimConfirming}
+                claimSuccess={claimSuccess}
+                claimError={claimError}
+                claimTxHash={claimTxHash}
+              />
+            )}
+
             <div>
               <div className="type-kicker mb-4">Mechanics</div>
               <div className="space-y-3 text-sm">
@@ -516,13 +612,30 @@ export default function TokenPage({
                   <span>Linear</span>
                 </div>
                 <div className="flex justify-between border-b border-line pb-3">
-                  <span className="text-ink-mute">Trade fee</span>
-                  <span className="font-mono">0%</span>
+                  <span className="text-ink-mute">Factory</span>
+                  <span className="font-mono">
+                    {tokenVersion ? `v${tokenVersion}` : "—"}
+                  </span>
+                </div>
+                <div className="border-b border-line pb-3">
+                  <div className="flex justify-between">
+                    <span className="text-ink-mute">Trade fee</span>
+                    <span className="font-mono">
+                      {formatFeePct(tokenVersion, tradeFeeBps as number | undefined)}
+                    </span>
+                  </div>
+                  {tokenVersion === 2 &&
+                    typeof tradeFeeBps === "number" &&
+                    tradeFeeBps > 0 && (
+                      <div className="text-[11px] text-ink-mute mt-2 leading-relaxed">
+                        80% to creator · 20% to protocol
+                      </div>
+                    )}
                 </div>
                 <div className="flex justify-between border-b border-line pb-3">
                   <span className="text-ink-mute">Max supply</span>
                   <span className="font-mono">
-                    {formatNumber(maxTokens)}
+                    {formatCompactSupply(maxTokens)}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -662,6 +775,39 @@ function formatNumber(n: number): string {
   return n.toFixed(0);
 }
 
+/**
+ * Compact supply formatter: keeps round numbers clean (1M instead of 1.00M).
+ */
+function formatCompactSupply(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  if (n >= 1e12) return `${trimZeros(n / 1e12)}T`;
+  if (n >= 1e9) return `${trimZeros(n / 1e9)}B`;
+  if (n >= 1e6) return `${trimZeros(n / 1e6)}M`;
+  if (n >= 1e3) return `${trimZeros(n / 1e3)}K`;
+  return n.toFixed(0);
+}
+
+function trimZeros(n: number): string {
+  // 1.00 → "1", 1.50 → "1.5", 1.23 → "1.23"
+  const s = n.toFixed(2);
+  return s.replace(/\.?0+$/, "");
+}
+
+/**
+ * Format a curve's trade fee as a human percent.
+ * v1 tokens have no fee; if the tokenVersion isn't known yet, return em-dash.
+ */
+function formatFeePct(
+  version: 1 | 2 | undefined,
+  bps: number | undefined
+): string {
+  if (version === 1) return "0%";
+  if (version !== 2 || typeof bps !== "number") return "—";
+  if (bps === 0) return "0%";
+  const pct = bps / 100;
+  return Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(2)}%`;
+}
+
 function formatTokenAmount(wei: bigint): string {
   const n = Number(wei) / 1e18;
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
@@ -713,7 +859,7 @@ async function findTokenAmountForUsdc({
     const tokenAmount = mid * WEI;
     const quote = (await client.readContract({
       address: curve,
-      abi: CURVE_ABI,
+      abi: CURVE_V1_ABI,
       functionName: mode === "buy" ? "getBuyCost" : "getSellReturn",
       args: [tokenAmount],
     })) as bigint;
@@ -734,4 +880,103 @@ async function findTokenAmountForUsdc({
   }
 
   return best;
+}
+
+// ============ CREATOR PANEL ============
+
+/**
+ * Creator-only fee claim panel, rendered on the token detail aside for v2
+ * tokens when the connected wallet matches the curve's creator address.
+ *
+ * Reads the current accrued creator share (80% of trade fees) and exposes a
+ * single Claim action that withdraws to the connected wallet.
+ */
+function CreatorPanel({
+  feesAccrued,
+  onClaim,
+  isSubmitting,
+  isConfirming,
+  claimSuccess,
+  claimError,
+  claimTxHash,
+}: {
+  feesAccrued: bigint;
+  onClaim: () => void;
+  isSubmitting: boolean;
+  isConfirming: boolean;
+  claimSuccess: boolean;
+  claimError: Error | null;
+  claimTxHash: `0x${string}` | undefined;
+}) {
+  const inFlight = isSubmitting || isConfirming;
+  const disabled = inFlight || feesAccrued === 0n;
+
+  return (
+    <div className="border border-line bg-paper-soft p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="type-kicker">Creator earnings</div>
+        <span className="text-[10px] font-mono tracking-wider uppercase px-1.5 py-0.5 border border-line text-ink-mute">
+          you
+        </span>
+      </div>
+
+      <div className="mb-1">
+        <span className="type-mono-stat text-3xl text-ink">
+          {formatUsdc(feesAccrued, 4)}
+        </span>
+        <span className="text-xs text-ink-mute font-mono ml-2">USDC</span>
+      </div>
+      <p className="text-[11px] text-ink-mute mb-5 leading-relaxed">
+        Your 80% share of trade fees, claimable anytime.
+      </p>
+
+      <button
+        onClick={onClaim}
+        disabled={disabled}
+        className="btn-primary w-full py-3 text-sm font-medium rounded-sm disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {isSubmitting
+          ? "Confirm in wallet…"
+          : isConfirming
+            ? "Claiming…"
+            : feesAccrued === 0n
+              ? "Nothing to claim"
+              : "Claim fees →"}
+      </button>
+
+      {claimSuccess && claimTxHash && (
+        <div className="mt-4 pt-4 border-t border-line text-xs">
+          <div className="text-good font-mono mb-1">✓ Claimed</div>
+          <a
+            href={`https://testnet.arcscan.app/tx/${claimTxHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="link-quiet font-mono break-all"
+          >
+            {claimTxHash.slice(0, 18)}…
+          </a>
+        </div>
+      )}
+
+      {claimError && (
+        <div className="mt-4 pt-4 border-t border-line text-xs text-bad leading-relaxed">
+          {parseClaimError(claimError)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function parseClaimError(err: Error): string {
+  const msg = err.message || String(err);
+  if (/User rejected|UserRejected|rejected/i.test(msg)) {
+    return "Transaction rejected in wallet.";
+  }
+  if (/NotCreator/i.test(msg)) {
+    return "Only the token creator can claim these fees.";
+  }
+  if (/NothingToClaim/i.test(msg)) {
+    return "No fees have accrued yet.";
+  }
+  return "Claim failed. Refresh and try again.";
 }

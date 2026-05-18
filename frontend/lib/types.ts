@@ -14,7 +14,15 @@ export type Trade = {
   logIndex: number;
 };
 
-/** TokenInfo as returned from MemeFactory.tokensBatch(). */
+/**
+ * TokenInfo unified across factory versions.
+ *
+ * v1 tokens: `version = 1`, `maxSupply = 1_000_000 * 1e18` (hardcoded), `tradeFeeBps = 0`.
+ * v2 tokens: `version = 2`, both fields come from on-chain TokenInfo.
+ *
+ * `factory` records which factory minted the token so downstream code can
+ * pick the matching curve ABI.
+ */
 export type TokenInfo = {
   token: Address;
   curve: Address;
@@ -23,6 +31,27 @@ export type TokenInfo = {
   symbol: string;
   imageURI: string;
   createdAt: bigint;
+  version: 1 | 2;
+  factory: Address;
+  maxSupply: bigint;
+  tradeFeeBps: number;
+};
+
+/** Raw TokenInfo as returned by MemeFactory v1 (legacy fields only). */
+export type RawTokenInfoV1 = {
+  token: Address;
+  curve: Address;
+  creator: Address;
+  name: string;
+  symbol: string;
+  imageURI: string;
+  createdAt: bigint;
+};
+
+/** Raw TokenInfo as returned by MemeFactory v2 (full fields). */
+export type RawTokenInfoV2 = RawTokenInfoV1 & {
+  maxSupply: bigint;
+  tradeFeeBps: number;
 };
 
 /** Aggregated stats for a single token (24h window). */

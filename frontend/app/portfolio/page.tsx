@@ -116,8 +116,16 @@ function HoldingRow({ holding }: { holding: Holding }) {
           }}
         />
         <div className="min-w-0">
-          <div className="font-display text-lg text-ink truncate">
-            {holding.info.name}
+          <div className="flex items-center gap-2">
+            <div className="font-display text-lg text-ink truncate">
+              {holding.info.name}
+            </div>
+            <span
+              className="text-[10px] font-mono tracking-wider uppercase px-1.5 py-0.5 border border-line text-ink-mute"
+              title={`Factory v${holding.info.version}`}
+            >
+              v{holding.info.version}
+            </span>
           </div>
           <div className="text-xs text-ink-mute font-mono mt-0.5">
             ${holding.info.symbol} / {shortAddr(holding.tokenAddress)}

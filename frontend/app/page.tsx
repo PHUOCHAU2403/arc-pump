@@ -2,25 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "viem";
-import { useReadContract, useReadContracts } from "wagmi";
+import { useReadContracts } from "wagmi";
 import { CURVE_ABI } from "@/lib/curve";
-import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
+import { FACTORY_V1_ADDRESS, FACTORY_V2_ADDRESS } from "@/lib/factory";
 import { TOKEN_ABI } from "@/lib/token";
 import { Navbar } from "@/components/Navbar";
 import { useTokenStats } from "@/hooks/useTokenStats";
+import { useAllTokens } from "@/hooks/useAllTokens";
 import { GlobalStats } from "@/components/GlobalStats";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import type { TokenInfo } from "@/lib/types";
 import Link from "next/link";
-
-type TokenInfo = {
-  token: `0x${string}`;
-  curve: `0x${string}`;
-  creator: `0x${string}`;
-  name: string;
-  symbol: string;
-  imageURI: string;
-  createdAt: bigint;
-};
 
 type SortKey = "newest" | "oldest" | "marketCap" | "volume24h";
 
@@ -43,25 +35,10 @@ export default function Home() {
   );
   const [search, setSearch] = useState("");
 
-  const { data: totalCount } = useReadContract({
-    address: FACTORY_ADDRESS,
-    abi: FACTORY_ABI,
-    functionName: "totalTokens",
-    query: { refetchInterval: 8000 },
-  });
+  const { data: tokensData } = useAllTokens();
 
-  const { data: tokensData } = useReadContract({
-    address: FACTORY_ADDRESS,
-    abi: FACTORY_ABI,
-    functionName: "tokensBatch",
-    args: [0n, 50n],
-    query: { refetchInterval: 8000 },
-  });
-
-  const tokens = useMemo(
-    () => (tokensData as TokenInfo[] | undefined) || [],
-    [tokensData]
-  );
+  const tokens = useMemo(() => tokensData ?? [], [tokensData]);
+  const totalCount = tokens.length;
 
   const marketCapContracts = useMemo(
     () =>
@@ -196,7 +173,7 @@ export default function Home() {
               Launch a token →
             </Link>
             <Link
-              href={`https://testnet.arcscan.app/address/${FACTORY_ADDRESS}`}
+              href={`https://testnet.arcscan.app/address/${FACTORY_V2_ADDRESS}`}
               target="_blank"
               rel="noopener noreferrer"
               className="link-quiet text-sm"
@@ -210,12 +187,7 @@ export default function Home() {
       {/* ============ PROTOCOL STRIP ============ */}
       <section className="border-y border-line bg-paper-soft">
         <div className="max-w-6xl mx-auto px-6 sm:px-8 grid grid-cols-3 divide-x divide-line">
-          <Stat
-            value={
-              totalCount !== undefined ? totalCount.toString() : "—"
-            }
-            label="Tokens launched"
-          />
+          <Stat value={String(totalCount)} label="Tokens launched" />
           <Stat value="1.00" label="Launch fee" unit="USDC" />
           <Stat value="0.00" label="Trading fee" unit="%" />
         </div>
@@ -457,7 +429,7 @@ function Footer() {
             Portfolio
           </Link>
           <a
-            href={`https://testnet.arcscan.app/address/${FACTORY_ADDRESS}`}
+            href={`https://testnet.arcscan.app/address/${FACTORY_V2_ADDRESS}`}
             target="_blank"
             rel="noopener noreferrer"
             className="link-quiet font-mono"

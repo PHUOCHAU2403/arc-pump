@@ -102,8 +102,16 @@ function FeedRow({ row }: { row: FeedItem }) {
           }}
         />
         <div className="min-w-0">
-          <div className="text-sm text-ink truncate group-hover:text-accent transition-colors">
-            ${row.tokenSymbol}
+          <div className="flex items-center gap-1.5">
+            <div className="text-sm text-ink truncate group-hover:text-accent transition-colors">
+              ${row.tokenSymbol}
+            </div>
+            <span
+              className="text-[9px] font-mono tracking-wider uppercase px-1 py-0 border border-line text-ink-mute leading-tight"
+              title={`Factory v${row.tokenVersion}`}
+            >
+              v{row.tokenVersion}
+            </span>
           </div>
           <div className="md:hidden text-[11px] text-ink-mute font-mono">
             {row.tokenName}

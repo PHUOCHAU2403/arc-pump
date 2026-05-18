@@ -2,31 +2,45 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient } from "wagmi";
-import type { Address } from "viem";
 import { arcTestnet } from "@/lib/chains";
-import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
+import {
+  FACTORY_V1_ABI,
+  FACTORY_V1_ADDRESS,
+  FACTORY_V2_ABI,
+  FACTORY_V2_ADDRESS,
+} from "@/lib/factory";
 import { TOKEN_ABI } from "@/lib/token";
-import { CURVE_ABI } from "@/lib/curve";
-import type { Holding, Portfolio, TokenInfo } from "@/lib/types";
+import { CURVE_V1_ABI } from "@/lib/curve";
+import type {
+  Holding,
+  Portfolio,
+  RawTokenInfoV1,
+  RawTokenInfoV2,
+  TokenInfo,
+} from "@/lib/types";
+
+const V1_DEFAULT_MAX_SUPPLY = 1_000_000n * 10n ** 18n;
+const V1_DEFAULT_TRADE_FEE_BPS = 0;
+const WEI = 10n ** 18n;
 
 /**
- * User's portfolio across ALL tokens launched on the factory.
+ * User's portfolio across BOTH MemeFactory v1 and v2 tokens.
  *
  * Strategy:
- *   1. Read all TokenInfo from factory.tokensBatch().
- *   2. For each token, multicall balanceOf(user) and curve.spotPrice() in parallel.
- *   3. Filter out zero balances.
- *   4. Compute total value at spot price.
+ *   1. Read totalTokens + tokensBatch from both factories.
+ *   2. Normalize v1 rows (hardcoded maxSupply / fee).
+ *   3. For each token, multicall balanceOf(user) and curve.spotPrice() in parallel.
+ *   4. Filter zero balances and value at spot price.
  *
- * Note: Cost-basis / P&L computation is left for a follow-up — would require
- * per-token trade history aggregation. For now, valueWei only.
+ * spotPrice + balanceOf have identical signatures across both curve versions,
+ * so CURVE_V1_ABI works for either.
  */
 export function useUserPortfolio() {
   const { address: user } = useAccount();
   const client = usePublicClient({ chainId: arcTestnet.id });
 
   return useQuery<Portfolio>({
-    queryKey: ["portfolio", user],
+    queryKey: ["portfolio", user, FACTORY_V1_ADDRESS, FACTORY_V2_ADDRESS],
     enabled: !!client && !!user,
     refetchInterval: 15_000,
     queryFn: async () => {
@@ -34,50 +48,104 @@ export function useUserPortfolio() {
         return emptyPortfolio();
       }
 
-      // 1. Get total tokens count and all token info.
-      const total = (await client.readContract({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI,
-        functionName: "totalTokens",
-      })) as bigint;
+      // 1. totalTokens from both factories.
+      const [v1Total, v2Total] = await Promise.all([
+        client
+          .readContract({
+            address: FACTORY_V1_ADDRESS,
+            abi: FACTORY_V1_ABI,
+            functionName: "totalTokens",
+          })
+          .catch(() => 0n) as Promise<bigint>,
+        client
+          .readContract({
+            address: FACTORY_V2_ADDRESS,
+            abi: FACTORY_V2_ABI,
+            functionName: "totalTokens",
+          })
+          .catch(() => 0n) as Promise<bigint>,
+      ]);
 
-      if (total === 0n) return emptyPortfolio();
+      if (v1Total === 0n && v2Total === 0n) return emptyPortfolio();
 
-      const allTokens = (await client.readContract({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI,
-        functionName: "tokensBatch",
-        args: [0n, total],
-      })) as TokenInfo[];
+      // 2. tokensBatch from both factories.
+      const fetches: Promise<TokenInfo[]>[] = [];
 
-      // 2. Multicall balanceOf + spotPrice for each token in parallel.
+      if (v1Total > 0n) {
+        fetches.push(
+          (client
+            .readContract({
+              address: FACTORY_V1_ADDRESS,
+              abi: FACTORY_V1_ABI,
+              functionName: "tokensBatch",
+              args: [0n, v1Total],
+            })
+            .catch(() => []) as Promise<RawTokenInfoV1[]>).then((rows) =>
+            rows.map((r) => ({
+              ...r,
+              version: 1 as const,
+              factory: FACTORY_V1_ADDRESS,
+              maxSupply: V1_DEFAULT_MAX_SUPPLY,
+              tradeFeeBps: V1_DEFAULT_TRADE_FEE_BPS,
+            }))
+          )
+        );
+      }
+
+      if (v2Total > 0n) {
+        fetches.push(
+          (client
+            .readContract({
+              address: FACTORY_V2_ADDRESS,
+              abi: FACTORY_V2_ABI,
+              functionName: "tokensBatch",
+              args: [0n, v2Total],
+            })
+            .catch(() => []) as Promise<RawTokenInfoV2[]>).then((rows) =>
+            rows.map((r) => ({
+              ...r,
+              version: 2 as const,
+              factory: FACTORY_V2_ADDRESS,
+            }))
+          )
+        );
+      }
+
+      const groups = await Promise.all(fetches);
+      const allTokens = groups.flat();
+
+      // 3. balanceOf + spotPrice per token in parallel.
       const queries = allTokens.map(async (info) => {
         const [balance, spotPrice] = await Promise.all([
-          client.readContract({
-            address: info.token,
-            abi: TOKEN_ABI,
-            functionName: "balanceOf",
-            args: [user],
-          }) as Promise<bigint>,
-          client.readContract({
-            address: info.curve,
-            abi: CURVE_ABI,
-            functionName: "spotPrice",
-          }) as Promise<bigint>,
+          client
+            .readContract({
+              address: info.token,
+              abi: TOKEN_ABI,
+              functionName: "balanceOf",
+              args: [user],
+            })
+            .catch(() => 0n) as Promise<bigint>,
+          client
+            .readContract({
+              address: info.curve,
+              abi: CURVE_V1_ABI,
+              functionName: "spotPrice",
+            })
+            .catch(() => 0n) as Promise<bigint>,
         ]);
         return { info, balance, spotPrice };
       });
 
       const results = await Promise.all(queries);
 
-      // 3. Build holdings (filter zero balances).
+      // 4. Build holdings (filter zero balances).
       const holdings: Holding[] = [];
       let totalValueWei = 0n;
       for (const { info, balance, spotPrice } of results) {
         if (balance === 0n) continue;
 
         // valueWei = balance * spotPrice / 1e18
-        const valueWei = (balance * spotPrice) / 10n ** 18n;
+        const valueWei = (balance * spotPrice) / WEI;
         totalValueWei += valueWei;
 
         holdings.push({
@@ -90,7 +158,10 @@ export function useUserPortfolio() {
       }
 
       // Sort by value descending.
-      holdings.sort((a, b) => Number(b.valueWei - a.valueWei));
+      holdings.sort((a, b) => {
+        if (a.valueWei === b.valueWei) return 0;
+        return a.valueWei > b.valueWei ? -1 : 1;
+      });
 
       return {
         holdings,

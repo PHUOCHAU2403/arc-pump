@@ -4,10 +4,23 @@ import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
 import type { Address, Log, PublicClient } from "viem";
 import { arcTestnet } from "@/lib/chains";
-import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
+import {
+  FACTORY_V1_ABI,
+  FACTORY_V1_ADDRESS,
+  FACTORY_V2_ABI,
+  FACTORY_V2_ADDRESS,
+} from "@/lib/factory";
 import { decodeTradeLog } from "@/lib/events";
 import { approxTimestamp } from "@/lib/blockchain";
-import type { Trade, TokenInfo } from "@/lib/types";
+import type {
+  RawTokenInfoV1,
+  RawTokenInfoV2,
+  Trade,
+  TokenInfo,
+} from "@/lib/types";
+
+const V1_DEFAULT_MAX_SUPPLY = 1_000_000n * 10n ** 18n;
+const V1_DEFAULT_TRADE_FEE_BPS = 0;
 
 /** A trade enriched with the token it belongs to (for the global activity feed). */
 export type FeedItem = Trade & {
@@ -15,35 +28,91 @@ export type FeedItem = Trade & {
   tokenSymbol: string;
   tokenName: string;
   tokenImage: string;
+  tokenVersion: 1 | 2;
 };
 
 /**
- * Global activity feed across ALL tokens.
+ * Global activity feed across ALL tokens (v1 + v2).
  * Uses chunked getLogs (Arc RPC has a 413 limit on big windows).
+ *
+ * decodeTradeLog handles both v1 and v2 event signatures, so a single
+ * curve query covers both versions transparently.
  */
 export function useActivityFeed(limit: number = 30) {
   const client = usePublicClient({ chainId: arcTestnet.id });
 
   return useQuery<FeedItem[]>({
-    queryKey: ["activityFeed", limit],
+    queryKey: ["activityFeed", limit, FACTORY_V1_ADDRESS, FACTORY_V2_ADDRESS],
     enabled: !!client,
     refetchInterval: 20_000,
     queryFn: async () => {
       if (!client) return [];
 
-      const total = (await client.readContract({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI,
-        functionName: "totalTokens",
-      })) as bigint;
-      if (total === 0n) return [];
+      // Fetch token lists from both factories in parallel.
+      const [v1Total, v2Total] = await Promise.all([
+        client
+          .readContract({
+            address: FACTORY_V1_ADDRESS,
+            abi: FACTORY_V1_ABI,
+            functionName: "totalTokens",
+          })
+          .catch(() => 0n) as Promise<bigint>,
+        client
+          .readContract({
+            address: FACTORY_V2_ADDRESS,
+            abi: FACTORY_V2_ABI,
+            functionName: "totalTokens",
+          })
+          .catch(() => 0n) as Promise<bigint>,
+      ]);
 
-      const allTokens = (await client.readContract({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI,
-        functionName: "tokensBatch",
-        args: [0n, total],
-      })) as TokenInfo[];
+      if (v1Total === 0n && v2Total === 0n) return [];
+
+      const tokenFetches: Promise<TokenInfo[]>[] = [];
+
+      if (v1Total > 0n) {
+        tokenFetches.push(
+          (client
+            .readContract({
+              address: FACTORY_V1_ADDRESS,
+              abi: FACTORY_V1_ABI,
+              functionName: "tokensBatch",
+              args: [0n, v1Total],
+            })
+            .catch(() => []) as Promise<RawTokenInfoV1[]>).then((rows) =>
+            rows.map((r) => ({
+              ...r,
+              version: 1 as const,
+              factory: FACTORY_V1_ADDRESS,
+              maxSupply: V1_DEFAULT_MAX_SUPPLY,
+              tradeFeeBps: V1_DEFAULT_TRADE_FEE_BPS,
+            }))
+          )
+        );
+      }
+
+      if (v2Total > 0n) {
+        tokenFetches.push(
+          (client
+            .readContract({
+              address: FACTORY_V2_ADDRESS,
+              abi: FACTORY_V2_ABI,
+              functionName: "tokensBatch",
+              args: [0n, v2Total],
+            })
+            .catch(() => []) as Promise<RawTokenInfoV2[]>).then((rows) =>
+            rows.map((r) => ({
+              ...r,
+              version: 2 as const,
+              factory: FACTORY_V2_ADDRESS,
+            }))
+          )
+        );
+      }
+
+      const tokenGroups = await Promise.all(tokenFetches);
+      const allTokens = tokenGroups.flat();
+      if (allTokens.length === 0) return [];
 
       const latest = await client.getBlock({ blockTag: "latest" });
       const head = latest.number;
@@ -81,6 +150,7 @@ export function useActivityFeed(limit: number = 30) {
             tokenSymbol: info.symbol,
             tokenName: info.name,
             tokenImage: info.imageURI,
+            tokenVersion: info.version,
           });
         }
       }
