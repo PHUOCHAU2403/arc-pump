@@ -1,8 +1,13 @@
 "use client";
 
-import { useReadContract } from "wagmi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Address } from "viem";
+import { useReadContract, useReadContracts } from "wagmi";
+import { CURVE_ABI } from "@/lib/curve";
 import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
+import { TOKEN_ABI } from "@/lib/token";
 import { Navbar } from "@/components/Navbar";
+import { useTokenStats } from "@/hooks/useTokenStats";
 import Link from "next/link";
 
 type TokenInfo = {
@@ -15,7 +20,26 @@ type TokenInfo = {
   createdAt: bigint;
 };
 
+type SortKey = "newest" | "oldest" | "marketCap" | "volume24h";
+
+const SORT_STORAGE_KEY = "arc-pump:launch-sort";
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "newest", label: "Newest" },
+  { key: "marketCap", label: "Top market cap" },
+  { key: "volume24h", label: "Top 24h volume" },
+  { key: "oldest", label: "Oldest" },
+];
+
 export default function Home() {
+  const [sortBy, setSortBy] = useState<SortKey>(() => {
+    if (typeof window === "undefined") return "newest";
+    const saved = window.localStorage.getItem(SORT_STORAGE_KEY);
+    return isSortKey(saved) ? saved : "newest";
+  });
+  const [volumeByToken, setVolumeByToken] = useState<Record<string, bigint>>(
+    {}
+  );
+
   const { data: totalCount } = useReadContract({
     address: FACTORY_ADDRESS,
     abi: FACTORY_ABI,
@@ -31,8 +55,96 @@ export default function Home() {
     query: { refetchInterval: 8000 },
   });
 
-  const tokens = (tokensData as TokenInfo[] | undefined) || [];
-  const sorted = [...tokens].reverse();
+  const tokens = useMemo(
+    () => (tokensData as TokenInfo[] | undefined) || [],
+    [tokensData]
+  );
+
+  const marketCapContracts = useMemo(
+    () =>
+      tokens.flatMap((token) => [
+        {
+          address: token.token,
+          abi: TOKEN_ABI,
+          functionName: "totalSupply",
+        },
+        {
+          address: token.curve,
+          abi: CURVE_ABI,
+          functionName: "spotPrice",
+        },
+      ]),
+    [tokens]
+  );
+
+  const { data: marketCapReads, isLoading: isMarketCapLoading } =
+    useReadContracts({
+      contracts: marketCapContracts,
+      query: {
+        enabled: sortBy === "marketCap" && marketCapContracts.length > 0,
+        refetchInterval: 12_000,
+      },
+    });
+
+  const marketCapByToken = useMemo(() => {
+    const next = new Map<string, bigint>();
+    if (!marketCapReads) return next;
+
+    tokens.forEach((token, index) => {
+      const supply = marketCapReads[index * 2]?.result;
+      const spotPrice = marketCapReads[index * 2 + 1]?.result;
+      if (typeof supply === "bigint" && typeof spotPrice === "bigint") {
+        next.set(token.token, (supply * spotPrice) / 10n ** 18n);
+      }
+    });
+
+    return next;
+  }, [marketCapReads, tokens]);
+
+  const sorted = useMemo(() => {
+    const list = [...tokens];
+
+    if (sortBy === "oldest") {
+      return list.sort((a, b) => compareBigint(a.createdAt, b.createdAt));
+    }
+
+    if (sortBy === "marketCap") {
+      return list.sort((a, b) => {
+        const primary = compareBigintDesc(
+          marketCapByToken.get(a.token) ?? -1n,
+          marketCapByToken.get(b.token) ?? -1n
+        );
+        return primary || compareBigintDesc(a.createdAt, b.createdAt);
+      });
+    }
+
+    if (sortBy === "volume24h") {
+      return list.sort((a, b) => {
+        const primary = compareBigintDesc(
+          volumeByToken[a.token] ?? -1n,
+          volumeByToken[b.token] ?? -1n
+        );
+        return primary || compareBigintDesc(a.createdAt, b.createdAt);
+      });
+    }
+
+    return list.sort((a, b) => compareBigintDesc(a.createdAt, b.createdAt));
+  }, [marketCapByToken, sortBy, tokens, volumeByToken]);
+
+  const handleSortChange = (next: SortKey) => {
+    setSortBy(next);
+    window.localStorage.setItem(SORT_STORAGE_KEY, next);
+  };
+
+  const handleVolumeUpdate = useCallback(
+    (tokenAddress: Address, volume24h: bigint) => {
+      setVolumeByToken((current) => {
+        if (current[tokenAddress] === volume24h) return current;
+        return { ...current, [tokenAddress]: volume24h };
+      });
+    },
+    []
+  );
 
   return (
     <div className="min-h-screen">
@@ -94,15 +206,32 @@ export default function Home() {
 
       {/* ============ TOKEN LIST ============ */}
       <section className="max-w-6xl mx-auto px-6 sm:px-8 py-20 sm:py-28">
-        <div className="flex justify-between items-end mb-10 pb-6 border-b border-line">
-          <div>
-            <div className="type-kicker mb-2">Index</div>
-            <h2 className="type-headline">Recent launches</h2>
+        <div className="flex flex-col gap-6 mb-10 pb-6 border-b border-line">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+            <div>
+              <div className="type-kicker mb-2">Index</div>
+              <h2 className="type-headline">Recent launches</h2>
+            </div>
+            <div className="text-sm text-ink-mute font-mono">
+              {String(sorted.length).padStart(3, "0")} total
+            </div>
           </div>
-          <div className="text-sm text-ink-mute font-mono">
-            {String(sorted.length).padStart(3, "0")} total
-          </div>
+
+          <SortControls
+            active={sortBy}
+            isMarketCapLoading={isMarketCapLoading}
+            onChange={handleSortChange}
+          />
         </div>
+
+        {sortBy === "volume24h" &&
+          tokens.map((token) => (
+            <TokenVolumeProbe
+              key={token.token}
+              token={token}
+              onVolume={handleVolumeUpdate}
+            />
+          ))}
 
         {sorted.length === 0 ? (
           <EmptyState />
@@ -118,6 +247,67 @@ export default function Home() {
       <Footer />
     </div>
   );
+}
+
+function SortControls({
+  active,
+  isMarketCapLoading,
+  onChange,
+}: {
+  active: SortKey;
+  isMarketCapLoading: boolean;
+  onChange: (next: SortKey) => void;
+}) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="type-kicker text-[10px]">Sort by</div>
+      <div className="flex flex-wrap border border-line">
+        {SORT_OPTIONS.map((option) => {
+          const isActive = active === option.key;
+          return (
+            <button
+              key={option.key}
+              onClick={() => onChange(option.key)}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs border-r border-line last:border-r-0 ${
+                isActive
+                  ? "bg-paper-soft text-ink"
+                  : "bg-paper text-ink-mute hover:text-ink hover:bg-paper-soft"
+              }`}
+            >
+              <span>{option.label}</span>
+              {isActive && (
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-0 w-0 border-x-[3px] border-x-transparent border-b-[5px] border-b-accent"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {active === "marketCap" && isMarketCapLoading && (
+        <span className="text-xs text-ink-mute font-mono">
+          pricing markets...
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TokenVolumeProbe({
+  token,
+  onVolume,
+}: {
+  token: TokenInfo;
+  onVolume: (tokenAddress: Address, volume24h: bigint) => void;
+}) {
+  const { stats } = useTokenStats(token.curve);
+
+  useEffect(() => {
+    if (stats) onVolume(token.token, stats.volume24h);
+  }, [onVolume, stats, token.token]);
+
+  return null;
 }
 
 function Stat({
@@ -246,6 +436,19 @@ function Footer() {
       </div>
     </footer>
   );
+}
+
+function isSortKey(value: string | null): value is SortKey {
+  return SORT_OPTIONS.some((option) => option.key === value);
+}
+
+function compareBigint(a: bigint, b: bigint): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+function compareBigintDesc(a: bigint, b: bigint): number {
+  return compareBigint(b, a);
 }
 
 function ageString(ts: bigint): string {
