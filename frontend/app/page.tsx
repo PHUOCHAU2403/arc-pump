@@ -39,6 +39,7 @@ export default function Home() {
   const [volumeByToken, setVolumeByToken] = useState<Record<string, bigint>>(
     {}
   );
+  const [search, setSearch] = useState("");
 
   const { data: totalCount } = useReadContract({
     address: FACTORY_ADDRESS,
@@ -146,6 +147,20 @@ export default function Home() {
     []
   );
 
+  // Apply search filter AFTER sort (so search works across whatever sort is active).
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return sorted;
+
+    return sorted.filter((token) => {
+      return (
+        token.name.toLowerCase().includes(query) ||
+        token.symbol.toLowerCase().includes(query) ||
+        token.token.toLowerCase().includes(query)
+      );
+    });
+  }, [search, sorted]);
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -213,8 +228,22 @@ export default function Home() {
               <h2 className="type-headline">Recent launches</h2>
             </div>
             <div className="text-sm text-ink-mute font-mono">
-              {String(sorted.length).padStart(3, "0")} total
+              {String(filtered.length).padStart(3, "0")}{" "}
+              {search.trim().length > 0 ? "shown" : "total"}
             </div>
+          </div>
+
+          <div className="max-w-sm">
+            <label className="type-kicker mb-2 block text-[10px]">
+              Search tokens
+            </label>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name, ticker, or address"
+              className="w-full bg-transparent border-b border-line py-3 text-sm focus:outline-none focus:border-ink placeholder:text-ink-faint"
+            />
           </div>
 
           <SortControls
@@ -233,11 +262,13 @@ export default function Home() {
             />
           ))}
 
-        {sorted.length === 0 ? (
+        {tokens.length === 0 ? (
           <EmptyState />
+        ) : filtered.length === 0 ? (
+          <SearchEmptyState query={search} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-line border border-line">
-            {sorted.map((t) => (
+            {filtered.map((t) => (
               <TokenRow key={t.token} token={t} />
             ))}
           </div>
@@ -389,6 +420,19 @@ function EmptyState() {
       >
         Launch the first token →
       </Link>
+    </div>
+  );
+}
+
+function SearchEmptyState({ query }: { query: string }) {
+  return (
+    <div className="border border-line border-dashed py-16 px-6 text-center">
+      <div className="type-kicker mb-3">No match</div>
+      <h3 className="type-headline mb-3">No market matches that search.</h3>
+      <p className="text-ink-mute text-sm max-w-md mx-auto">
+        Try a token name, ticker, or contract fragment. Current query:{" "}
+        <span className="font-mono text-ink">{query}</span>.
+      </p>
     </div>
   );
 }
