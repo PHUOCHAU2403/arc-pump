@@ -127,8 +127,8 @@ export default function CreatePage() {
             </span>
           </h1>
           <p className="text-ink-mute leading-relaxed">
-            A token is just a name plus a curve. Both live forever on Arc
-            Testnet — choose them carefully.
+            A token is just a name plus a curve. Both live forever onchain —
+            choose them carefully.
           </p>
         </div>
 
@@ -289,7 +289,7 @@ export default function CreatePage() {
                       : "Free trades"
                   }
                 />
-                <Spec label="Network" value="Arc Testnet" />
+                <Spec label="Network" value="Arc" />
                 <Spec label="Factory" value="v2" mono />
               </div>
             </aside>
@@ -577,8 +577,8 @@ function NotConnected() {
       <div className="type-kicker mb-4">Authentication required</div>
       <h2 className="type-headline mb-4">Connect a wallet to continue.</h2>
       <p className="text-ink-mute text-sm mb-8 max-w-md mx-auto">
-        A signature is required to deploy contracts on Arc Testnet. Any
-        Web3 wallet with USDC will work.
+        A signature is required to deploy contracts on Arc. Any Web3 wallet
+        with USDC will work.
       </p>
       <div className="flex justify-center">
         <ConnectButton />
@@ -592,7 +592,7 @@ function WrongNetwork() {
     <div className="card p-16 text-center">
       <div className="type-kicker mb-4 text-bad">Wrong network</div>
       <h2 className="type-headline mb-4">
-        Switch to <span className="font-display italic">Arc Testnet</span>.
+        Switch to <span className="font-display italic">Arc Network</span>.
       </h2>
       <p className="text-ink-mute text-sm mb-8 max-w-md mx-auto">
         Chain ID 5042002. Your wallet is currently on a different network.

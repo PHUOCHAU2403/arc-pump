@@ -22,12 +22,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ARC PUMP — Memecoin launchpad on Arc",
+  title: "Arc Pump — Where ideas become markets",
   description:
-    "Capital formation for ideas, on Arc Network. Linear bonding curve. USDC native. One USDC to launch.",
+    "A USDC-native launchpad for bonding-curve markets on Arc Network. Deploy in one transaction. Permanent liquidity. Economics you control.",
   openGraph: {
-    title: "ARC PUMP",
-    description: "Capital formation for ideas, on Arc Network.",
+    title: "Arc Pump",
+    description: "Where ideas become markets. Built on Arc Network.",
     type: "website",
   },
 };

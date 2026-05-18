@@ -14,7 +14,6 @@ export function Navbar() {
           <span className="font-display text-xl text-ink tracking-tight">
             Arc<span className="italic text-accent">·</span>Pump
           </span>
-          <span className="type-kicker hidden sm:inline">v0.1 / testnet</span>
         </Link>
 
         <div className="flex items-center gap-3 sm:gap-5">

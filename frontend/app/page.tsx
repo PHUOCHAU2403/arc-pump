@@ -149,20 +149,21 @@ export default function Home() {
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 mb-8">
             <span className="dot-live" />
-            <span className="type-kicker">Live on Arc Testnet</span>
+            <span className="type-kicker">Now live on Arc</span>
           </div>
 
           <h1 className="type-display mb-8 text-ink">
-            Capital formation
+            Where ideas
             <br />
-            for{" "}
-            <span className="font-display italic text-accent">ideas.</span>
+            become{" "}
+            <span className="font-display italic text-accent">markets.</span>
           </h1>
 
           <p className="text-lg sm:text-xl text-ink-mute max-w-2xl leading-relaxed mb-10">
-            ARC PUMP is a memecoin launchpad on Arc Network. Linear bonding
-            curve, USDC&#8209;native, fixed one&#8209;USDC fee to launch. No
-            graduation theater, no hidden levers.
+            Arc Pump is a USDC&#8209;native launchpad for bonding&#8209;curve
+            markets. Deploy in one transaction, with permanent liquidity and
+            economics you control. No graduation theater, no hidden levers,
+            no rug-pull surface.
           </p>
 
           <div className="flex flex-wrap items-center gap-6">
@@ -187,9 +188,9 @@ export default function Home() {
       {/* ============ PROTOCOL STRIP ============ */}
       <section className="border-y border-line bg-paper-soft">
         <div className="max-w-6xl mx-auto px-6 sm:px-8 grid grid-cols-3 divide-x divide-line">
-          <Stat value={String(totalCount)} label="Tokens launched" />
+          <Stat value={String(totalCount)} label="Markets launched" />
           <Stat value="1.00" label="Launch fee" unit="USDC" />
-          <Stat value="0.00" label="Trading fee" unit="%" />
+          <Stat value="Linear" label="Bonding curve" />
         </div>
       </section>
 
@@ -392,7 +393,8 @@ function EmptyState() {
       <div className="type-kicker mb-3">No launches yet</div>
       <h3 className="type-headline mb-3">An empty market is an open one.</h3>
       <p className="text-ink-mute text-sm max-w-md mx-auto mb-8">
-        Be the first to seed liquidity on Arc Testnet.
+        Be the first to seed liquidity. The next market begins with a
+        single transaction.
       </p>
       <Link
         href="/create"
@@ -455,8 +457,8 @@ function Footer() {
         </div>
       </div>
       <div className="mt-10 pt-6 border-t border-line text-[11px] text-ink-faint">
-        Testnet only · Not financial advice · Built on Arc Network · Powered by
-        Circle USDC
+        Permanent liquidity, onchain · Not financial advice · Built on Arc
+        Network · Settled in Circle USDC
       </div>
     </footer>
   );

@@ -447,7 +447,7 @@ export default function TokenPage({
             {!isConnected ? (
               <ConnectGate label="Connect wallet to trade" />
             ) : !onArc ? (
-              <ConnectGate label="Switch to Arc Testnet" />
+              <ConnectGate label="Switch to Arc Network" />
             ) : (
               <div className="space-y-6">
                 <div>
@@ -671,7 +671,7 @@ export default function TokenPage({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-ink-mute">Chain</span>
-                  <span>Arc Testnet</span>
+                  <span>Arc</span>
                 </div>
               </div>
             </div>
