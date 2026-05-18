@@ -200,6 +200,24 @@ export default function TokenPage({
     query: { enabled: !!curve && tokenAmount > 0n },
   });
 
+  // Fee math (v2 only). v1 tokens have no fee, so feeWei stays 0n.
+  //   buy:  total = cost + fee  →  msg.value must cover total
+  //   sell: net   = grossRefund - fee  →  user actually receives `net`
+  const feeBpsBigInt =
+    tokenVersion === 2 && typeof tradeFeeBps === "number"
+      ? BigInt(tradeFeeBps)
+      : 0n;
+  const quoteWei = (quote as bigint | undefined) ?? 0n;
+  const feeWei =
+    feeBpsBigInt > 0n ? (quoteWei * feeBpsBigInt) / 10_000n : 0n;
+  const totalCostWei = mode === "buy" ? quoteWei + feeWei : 0n;
+  const netSellWei = mode === "sell" ? quoteWei - feeWei : 0n;
+  const displayQuoteWei = mode === "buy" ? totalCostWei : netSellWei;
+  const maxValueSentWei =
+    mode === "buy" && quote !== undefined
+      ? applySlippageUp(totalCostWei, slippageBps)
+      : 0n;
+
   const { writeContract, data: txHash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: txSuccess } =
     useWaitForTransactionReceipt({ hash: txHash });
@@ -249,7 +267,10 @@ export default function TokenPage({
         abi: CURVE_ABI,
         functionName: "buy",
         args: [tokenAmount],
-        value: applySlippageUp(quote as bigint, slippageBps),
+        // For v2 tokens, msg.value must cover cost + fee — slippage applied on
+        // top of the post-fee total. For v1, feeWei is 0 so this reduces to
+        // the v1 behaviour cleanly.
+        value: maxValueSentWei,
       });
     } else {
       writeContract({
@@ -500,22 +521,32 @@ export default function TokenPage({
                     </span>
                     <span className="type-mono-stat text-2xl">
                       {quote
-                        ? (Number(quote) / 1e18).toFixed(6)
+                        ? (Number(displayQuoteWei) / 1e18).toFixed(6)
                         : "—"}{" "}
                       <span className="text-sm text-ink-mute">USDC</span>
                     </span>
                   </div>
+                  {tokenVersion === 2 && feeWei > 0n && quote !== undefined && (
+                    <div className="flex justify-between items-baseline text-[11px] text-ink-mute mt-2 pt-2 border-t border-line">
+                      <span>
+                        {mode === "buy"
+                          ? `Base cost + ${(Number(tradeFeeBps ?? 0) / 100).toFixed(2)}% fee`
+                          : `Gross − ${(Number(tradeFeeBps ?? 0) / 100).toFixed(2)}% fee`}
+                      </span>
+                      <span className="font-mono">
+                        {(Number(quoteWei) / 1e18).toFixed(6)}
+                        {mode === "buy" ? " + " : " − "}
+                        {(Number(feeWei) / 1e18).toFixed(6)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {mode === "buy" && quote !== undefined && (
                   <div className="flex justify-between items-baseline text-xs text-ink-mute">
                     <span>Max value sent</span>
                     <span className="font-mono">
-                      {(
-                        Number(applySlippageUp(quote as bigint, slippageBps)) /
-                        1e18
-                      ).toFixed(6)}{" "}
-                      USDC
+                      {(Number(maxValueSentWei) / 1e18).toFixed(6)} USDC
                     </span>
                   </div>
                 )}
