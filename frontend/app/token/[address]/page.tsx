@@ -1,14 +1,17 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   useAccount,
   useChainId,
+  usePublicClient,
   useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import type { PublicClient } from "viem";
 import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
 import { CURVE_ABI } from "@/lib/curve";
 import { TOKEN_ABI } from "@/lib/token";
@@ -16,6 +19,9 @@ import { arcTestnet } from "@/lib/chains";
 import { Navbar } from "@/components/Navbar";
 import { PriceChart } from "@/components/PriceChart";
 import { TradeFeed } from "@/components/TradeFeed";
+
+const WEI = 10n ** 18n;
+const MAX_SEARCH_TOKENS = 1_000_000n;
 
 export default function TokenPage({
   params,
@@ -27,6 +33,7 @@ export default function TokenPage({
   const { address: user, isConnected } = useAccount();
   const chainId = useChainId();
   const onArc = chainId === arcTestnet.id;
+  const publicClient = usePublicClient({ chainId: arcTestnet.id });
 
   // ============ READS ============
   const { data: curveAddress } = useReadContract({
@@ -90,16 +97,45 @@ export default function TokenPage({
 
   // ============ STATE ============
   const [mode, setMode] = useState<"buy" | "sell">("buy");
+  const [inputMode, setInputMode] = useState<"tokens" | "usdc">("tokens");
   const [amount, setAmount] = useState("100");
+  const [slippageBps, setSlippageBps] = useState(100);
+  const [customSlippage, setCustomSlippage] = useState("1");
+  const [showSlippage, setShowSlippage] = useState(false);
 
-  const tokenAmount = (() => {
-    try {
-      const n = BigInt(Math.floor(Number(amount || "0")));
-      return n * 10n ** 18n;
-    } catch {
-      return 0n;
-    }
-  })();
+  const parsedAmount = parseDecimalToWei(amount);
+  const tokenInputAmount = inputMode === "tokens" ? parsedAmount : 0n;
+  const desiredUsdcAmount = inputMode === "usdc" ? parsedAmount : 0n;
+  const sellSearchCap = mode === "sell" && balance ? (balance as bigint) : undefined;
+
+  const { data: calculatedTokenAmount, isFetching: isCalculatingAmount } =
+    useQuery({
+      queryKey: [
+        "tradeAmountForUsdc",
+        curve,
+        mode,
+        desiredUsdcAmount.toString(),
+        sellSearchCap?.toString() ?? "max",
+      ],
+      enabled:
+        !!publicClient &&
+        !!curve &&
+        inputMode === "usdc" &&
+        desiredUsdcAmount > 0n,
+      queryFn: async () => {
+        if (!publicClient || !curve) return 0n;
+        return findTokenAmountForUsdc({
+          client: publicClient,
+          curve,
+          mode,
+          desiredUsdcWei: desiredUsdcAmount,
+          maxTokenWei: sellSearchCap,
+        });
+      },
+    });
+
+  const tokenAmount =
+    inputMode === "tokens" ? tokenInputAmount : calculatedTokenAmount ?? 0n;
 
   const { data: quote } = useReadContract({
     address: curve,
@@ -128,7 +164,7 @@ export default function TokenPage({
         abi: CURVE_ABI,
         functionName: "buy",
         args: [tokenAmount],
-        value: quote as bigint,
+        value: applySlippageUp(quote as bigint, slippageBps),
       });
     } else {
       writeContract({
@@ -137,6 +173,25 @@ export default function TokenPage({
         functionName: "sell",
         args: [tokenAmount],
       });
+    }
+  };
+
+  const handleInputModeSwitch = () => {
+    const next = inputMode === "tokens" ? "usdc" : "tokens";
+    setInputMode(next);
+    setAmount(next === "tokens" ? "100" : "1");
+  };
+
+  const handleSlippagePreset = (bps: number) => {
+    setSlippageBps(bps);
+    setCustomSlippage((bps / 100).toString());
+  };
+
+  const handleCustomSlippage = (value: string) => {
+    setCustomSlippage(value);
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      setSlippageBps(Math.round(parsed * 100));
     }
   };
 
@@ -250,19 +305,37 @@ export default function TokenPage({
         <section className="grid lg:grid-cols-[1fr_320px] gap-12">
           {/* Trade form */}
           <div>
-            <div className="flex gap-0 mb-8 border-b border-line">
-              <TabButton
-                active={mode === "buy"}
-                onClick={() => setMode("buy")}
-              >
-                Buy
-              </TabButton>
-              <TabButton
-                active={mode === "sell"}
-                onClick={() => setMode("sell")}
-              >
-                Sell
-              </TabButton>
+            <div className="flex gap-4 justify-between mb-8 border-b border-line">
+              <div className="flex gap-0">
+                <TabButton
+                  active={mode === "buy"}
+                  onClick={() => setMode("buy")}
+                >
+                  Buy
+                </TabButton>
+                <TabButton
+                  active={mode === "sell"}
+                  onClick={() => setMode("sell")}
+                >
+                  Sell
+                </TabButton>
+              </div>
+              <div className="relative pb-2">
+                <button
+                  onClick={() => setShowSlippage((open) => !open)}
+                  className="px-3 py-2 text-xs text-ink-mute hover:text-ink border border-line rounded-sm"
+                >
+                  Slippage {(slippageBps / 100).toFixed(2)}%
+                </button>
+                {showSlippage && (
+                  <SlippagePopover
+                    customSlippage={customSlippage}
+                    onCustom={handleCustomSlippage}
+                    onPreset={handleSlippagePreset}
+                    slippageBps={slippageBps}
+                  />
+                )}
+              </div>
             </div>
 
             {!isConnected ? (
@@ -274,9 +347,18 @@ export default function TokenPage({
                 <div>
                   <div className="flex justify-between items-baseline mb-2">
                     <label className="type-kicker">
-                      Amount ({symbol as string})
+                      {inputMode === "tokens"
+                        ? `Amount (${symbol as string})`
+                        : "Amount (USDC)"}
                     </label>
-                    {mode === "sell" && (
+                    <button
+                      onClick={handleInputModeSwitch}
+                      className="text-[11px] text-ink-mute hover:text-ink"
+                    >
+                      switch to{" "}
+                      {inputMode === "tokens" ? "USDC" : `$${symbol as string}`}
+                    </button>
+                    {mode === "sell" && inputMode === "tokens" && (
                       <button
                         onClick={() =>
                           setAmount(String(Math.floor(balanceTokens)))
@@ -292,11 +374,14 @@ export default function TokenPage({
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     min="0"
-                    step="1"
+                    step={inputMode === "tokens" ? "1" : "0.01"}
                     className="w-full px-0 py-4 bg-transparent border-b border-line focus:outline-none focus:border-ink text-3xl font-mono"
                   />
                   <div className="flex gap-3 mt-3">
-                    {[100, 1000, 10000, 100000].map((n) => (
+                    {(inputMode === "tokens"
+                      ? [100, 1000, 10000, 100000]
+                      : [1, 5, 10, 25]
+                    ).map((n) => (
                       <button
                         key={n}
                         onClick={() => setAmount(String(n))}
@@ -309,6 +394,21 @@ export default function TokenPage({
                 </div>
 
                 <div className="py-4 border-y border-line">
+                  {inputMode === "usdc" && (
+                    <div className="flex justify-between items-baseline pb-4 mb-4 border-b border-line">
+                      <span className="text-sm text-ink-mute">
+                        Estimated tokens
+                      </span>
+                      <span className="type-mono-stat text-xl">
+                        {isCalculatingAmount
+                          ? "..."
+                          : formatTokenAmount(tokenAmount)}{" "}
+                        <span className="text-sm text-ink-mute">
+                          ${symbol as string}
+                        </span>
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-baseline">
                     <span className="text-sm text-ink-mute">
                       {mode === "buy" ? "You pay" : "You receive"}
@@ -322,9 +422,35 @@ export default function TokenPage({
                   </div>
                 </div>
 
+                {mode === "buy" && quote !== undefined && (
+                  <div className="flex justify-between items-baseline text-xs text-ink-mute">
+                    <span>Max value sent</span>
+                    <span className="font-mono">
+                      {(
+                        Number(applySlippageUp(quote as bigint, slippageBps)) /
+                        1e18
+                      ).toFixed(6)}{" "}
+                      USDC
+                    </span>
+                  </div>
+                )}
+
+                {mode === "sell" && (
+                  <p className="text-xs text-ink-mute leading-relaxed">
+                    Note: sells execute at market price. This curve does not
+                    expose slippage protection.
+                  </p>
+                )}
+
                 <button
                   onClick={handleTrade}
-                  disabled={!quote || isPending || isConfirming}
+                  disabled={
+                    !quote ||
+                    tokenAmount <= 0n ||
+                    isPending ||
+                    isConfirming ||
+                    isCalculatingAmount
+                  }
                   className="btn-primary w-full py-4 text-sm font-medium tracking-wide rounded-sm"
                 >
                   {isPending
@@ -415,6 +541,57 @@ export default function TokenPage({
 
 // ============ COMPONENTS ============
 
+function SlippagePopover({
+  customSlippage,
+  onCustom,
+  onPreset,
+  slippageBps,
+}: {
+  customSlippage: string;
+  onCustom: (value: string) => void;
+  onPreset: (bps: number) => void;
+  slippageBps: number;
+}) {
+  const presets = [
+    { label: "0.5%", value: 50 },
+    { label: "1%", value: 100 },
+    { label: "5%", value: 500 },
+  ];
+
+  return (
+    <div className="absolute right-0 top-full z-20 w-64 border border-line bg-paper p-4">
+      <div className="type-kicker mb-3">Slippage tolerance</div>
+      <div className="grid grid-cols-3 gap-px bg-line border border-line mb-4">
+        {presets.map((preset) => (
+          <button
+            key={preset.value}
+            onClick={() => onPreset(preset.value)}
+            className={`py-2 text-xs font-mono ${
+              slippageBps === preset.value
+                ? "bg-paper-soft text-ink"
+                : "bg-paper text-ink-mute hover:text-ink"
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <label className="type-kicker mb-2 block text-[10px]">Custom</label>
+      <div className="flex items-center border-b border-line">
+        <input
+          type="number"
+          min="0"
+          step="0.1"
+          value={customSlippage}
+          onChange={(e) => onCustom(e.target.value)}
+          className="w-full bg-transparent py-2 text-sm font-mono focus:outline-none"
+        />
+        <span className="text-xs text-ink-mute font-mono">%</span>
+      </div>
+    </div>
+  );
+}
+
 function Stat({
   label,
   value,
@@ -478,4 +655,78 @@ function formatNumber(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
   return n.toFixed(0);
+}
+
+function formatTokenAmount(wei: bigint): string {
+  const n = Number(wei) / 1e18;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  if (n >= 1) return n.toFixed(0);
+  return n.toFixed(4);
+}
+
+function parseDecimalToWei(value: string): bigint {
+  const trimmed = value.trim();
+  if (!trimmed || !/^\d*(\.\d*)?$/.test(trimmed)) return 0n;
+
+  const [whole = "0", fraction = ""] = trimmed.split(".");
+  const wholeWei = BigInt(whole || "0") * WEI;
+  const fractionWei = BigInt(fraction.padEnd(18, "0").slice(0, 18) || "0");
+
+  return wholeWei + fractionWei;
+}
+
+function applySlippageUp(amount: bigint, bps: number): bigint {
+  return (amount * (10_000n + BigInt(bps)) + 9_999n) / 10_000n;
+}
+
+async function findTokenAmountForUsdc({
+  client,
+  curve,
+  desiredUsdcWei,
+  maxTokenWei,
+  mode,
+}: {
+  client: PublicClient;
+  curve: `0x${string}`;
+  desiredUsdcWei: bigint;
+  maxTokenWei?: bigint;
+  mode: "buy" | "sell";
+}): Promise<bigint> {
+  const capWhole =
+    maxTokenWei && maxTokenWei > 0n ? maxTokenWei / WEI : MAX_SEARCH_TOKENS;
+  const highLimit = capWhole > MAX_SEARCH_TOKENS ? MAX_SEARCH_TOKENS : capWhole;
+  if (highLimit <= 0n) return 0n;
+
+  let low = 1n;
+  let high = highLimit;
+  let best = 0n;
+
+  while (low <= high) {
+    const mid = (low + high) / 2n;
+    const tokenAmount = mid * WEI;
+    const quote = (await client.readContract({
+      address: curve,
+      abi: CURVE_ABI,
+      functionName: mode === "buy" ? "getBuyCost" : "getSellReturn",
+      args: [tokenAmount],
+    })) as bigint;
+
+    if (mode === "buy") {
+      if (quote <= desiredUsdcWei) {
+        best = tokenAmount;
+        low = mid + 1n;
+      } else {
+        high = mid - 1n;
+      }
+    } else if (quote >= desiredUsdcWei) {
+      best = tokenAmount;
+      high = mid - 1n;
+    } else {
+      low = mid + 1n;
+    }
+  }
+
+  return best;
 }
