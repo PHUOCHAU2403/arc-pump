@@ -8,6 +8,8 @@ import { FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/factory";
 import { TOKEN_ABI } from "@/lib/token";
 import { Navbar } from "@/components/Navbar";
 import { useTokenStats } from "@/hooks/useTokenStats";
+import { GlobalStats } from "@/components/GlobalStats";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import Link from "next/link";
 
 type TokenInfo = {
@@ -205,7 +207,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ STAT STRIP ============ */}
+      {/* ============ PROTOCOL STRIP ============ */}
       <section className="border-y border-line bg-paper-soft">
         <div className="max-w-6xl mx-auto px-6 sm:px-8 grid grid-cols-3 divide-x divide-line">
           <Stat
@@ -218,6 +220,9 @@ export default function Home() {
           <Stat value="0.00" label="Trading fee" unit="%" />
         </div>
       </section>
+
+      {/* ============ 24H GLOBAL STATS ============ */}
+      <GlobalStats />
 
       {/* ============ TOKEN LIST ============ */}
       <section className="max-w-6xl mx-auto px-6 sm:px-8 py-20 sm:py-28">
@@ -274,6 +279,9 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* ============ ACTIVITY FEED ============ */}
+      <ActivityFeed limit={20} />
 
       <Footer />
     </div>
