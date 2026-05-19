@@ -785,16 +785,22 @@ function TabButton({
   onClick: () => void;
   children: React.ReactNode;
 }) {
+  // Underline is a child element whose scaleX is driven by the active flag —
+  // CSS handles the 220ms ease-out tween. Origin alternates left/right so it
+  // visually "wipes" toward the active tab when switching between Buy and Sell.
   return (
     <button
       onClick={onClick}
-      className={`px-6 py-3 text-sm font-medium relative -mb-px border-b ${
-        active
-          ? "border-ink text-ink"
-          : "border-transparent text-ink-mute hover:text-ink"
+      className={`px-6 py-3 text-sm font-medium relative -mb-px transition-colors duration-200 ${
+        active ? "text-ink" : "text-ink-mute hover:text-ink"
       }`}
     >
       {children}
+      <span
+        aria-hidden
+        className="absolute left-0 right-0 bottom-0 h-px bg-ink origin-left transition-transform duration-200 ease-out"
+        style={{ transform: active ? "scaleX(1)" : "scaleX(0)" }}
+      />
     </button>
   );
 }
