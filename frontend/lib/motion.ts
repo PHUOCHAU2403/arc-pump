@@ -80,7 +80,9 @@ export function countUp(
     value: to,
     duration,
     ease: DEFAULT_EASE,
-    update: () => {
+    // anime.js v4 renamed `update` → `onUpdate`. Using the wrong name silently
+    // no-ops, leaving the text stuck at its initial value.
+    onUpdate: () => {
       el.textContent = format(state.value);
     },
   });
