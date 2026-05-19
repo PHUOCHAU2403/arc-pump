@@ -37,6 +37,9 @@ export function useAllTokens() {
     queryFn: async () => {
       if (!client) return [];
 
+      // Probe both factories. We log on failure (instead of silently
+      // returning 0n) so a misconfigured RPC / CORS issue is visible in the
+      // browser console instead of presenting as "empty index".
       const [v1Total, v2Total] = await Promise.all([
         client
           .readContract({
@@ -44,15 +47,28 @@ export function useAllTokens() {
             abi: FACTORY_V1_ABI,
             functionName: "totalTokens",
           })
-          .catch(() => 0n) as Promise<bigint>,
+          .catch((err) => {
+            console.error("[useAllTokens] v1 totalTokens failed", err);
+            return 0n;
+          }) as Promise<bigint>,
         client
           .readContract({
             address: FACTORY_V2_ADDRESS,
             abi: FACTORY_V2_ABI,
             functionName: "totalTokens",
           })
-          .catch(() => 0n) as Promise<bigint>,
+          .catch((err) => {
+            console.error("[useAllTokens] v2 totalTokens failed", err);
+            return 0n;
+          }) as Promise<bigint>,
       ]);
+
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[useAllTokens] totals", {
+          v1: v1Total.toString(),
+          v2: v2Total.toString(),
+        });
+      }
 
       const fetches: Promise<TokenInfo[]>[] = [];
 
@@ -65,7 +81,10 @@ export function useAllTokens() {
               functionName: "tokensBatch",
               args: [0n, v1Total],
             })
-            .catch(() => []) as Promise<RawTokenInfoV1[]>).then((rows) =>
+            .catch((err) => {
+              console.error("[useAllTokens] v1 tokensBatch failed", err);
+              return [] as RawTokenInfoV1[];
+            }) as Promise<RawTokenInfoV1[]>).then((rows) =>
             rows.map((r) => normalizeV1(r))
           )
         );
@@ -80,7 +99,10 @@ export function useAllTokens() {
               functionName: "tokensBatch",
               args: [0n, v2Total],
             })
-            .catch(() => []) as Promise<RawTokenInfoV2[]>).then((rows) =>
+            .catch((err) => {
+              console.error("[useAllTokens] v2 tokensBatch failed", err);
+              return [] as RawTokenInfoV2[];
+            }) as Promise<RawTokenInfoV2[]>).then((rows) =>
             rows.map((r) => normalizeV2(r))
           )
         );
