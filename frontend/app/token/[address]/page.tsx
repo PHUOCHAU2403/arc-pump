@@ -22,6 +22,7 @@ import { CURVE_V1_ABI, CURVE_V2_ABI } from "@/lib/curve";
 import { TOKEN_ABI } from "@/lib/token";
 import { arcTestnet } from "@/lib/chains";
 import { formatUsdc } from "@/lib/blockchain";
+import { useFlashOnChange } from "@/hooks/useFlashOnChange";
 import { Navbar } from "@/components/Navbar";
 import { HoldersList } from "@/components/HoldersList";
 import { PriceChart } from "@/components/PriceChart";
@@ -366,16 +367,19 @@ export default function TokenPage({
               spotPrice ? (Number(spotPrice) / 1e18).toFixed(6) : "—"
             }
             unit="USDC"
+            flashValue={spotPrice as bigint | undefined}
           />
           <Stat
             label="Sold"
             value={formatNumber(supplyTokens)}
             unit={`of ${formatNumber(maxTokens)}`}
+            flashValue={totalSupply as bigint | undefined}
           />
           <Stat
             label="Curve progress"
             value={`${percentSold.toFixed(2)}`}
             unit="%"
+            flashValue={Math.round(percentSold * 100)}
           />
           <Stat
             label="Raised"
@@ -383,6 +387,7 @@ export default function TokenPage({
               reserve ? (Number(reserve) / 1e18).toFixed(4) : "0.0000"
             }
             unit="USDC"
+            flashValue={reserve as bigint | undefined}
           />
         </section>
 
@@ -745,15 +750,21 @@ function Stat({
   label,
   value,
   unit,
+  flashValue,
 }: {
   label: string;
   value: string;
   unit?: string;
+  /** Optional value to watch — when it changes, the stat briefly flashes accent. */
+  flashValue?: bigint | number | string;
 }) {
+  const flashClass = useFlashOnChange(flashValue);
   return (
     <div className="bg-paper p-5">
       <div className="type-kicker mb-3 text-[10px]">{label}</div>
-      <div className="type-mono-stat text-lg sm:text-xl text-ink leading-tight truncate">
+      <div
+        className={`type-mono-stat text-lg sm:text-xl text-ink leading-tight truncate ${flashClass}`}
+      >
         {value}
       </div>
       {unit && (

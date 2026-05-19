@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useRef } from "react";
 import { useActivityFeed, type FeedItem } from "@/hooks/useActivityFeed";
 import {
   formatTokens,
@@ -49,6 +50,30 @@ export function ActivityFeed({ limit = 20 }: { limit?: number }) {
 }
 
 function FeedTable({ feed }: { feed: FeedItem[] }) {
+  // Track which rows have been seen across renders so only rows that
+  // genuinely arrived between refetches get the slide-in flash. On the very
+  // first non-empty render we "prime" the set without flagging anything as
+  // new — otherwise every row would flash on initial load.
+  const seenKeys = useRef<Set<string>>(new Set());
+  const primed = useRef<boolean>(false);
+
+  const newKeys = useMemo(() => {
+    const fresh = new Set<string>();
+    if (!primed.current) return fresh;
+    for (const row of feed) {
+      const key = `${row.txHash}-${row.logIndex}`;
+      if (!seenKeys.current.has(key)) fresh.add(key);
+    }
+    return fresh;
+  }, [feed]);
+
+  useEffect(() => {
+    for (const row of feed) {
+      seenKeys.current.add(`${row.txHash}-${row.logIndex}`);
+    }
+    if (!primed.current && feed.length > 0) primed.current = true;
+  }, [feed]);
+
   return (
     <div className="border border-line">
       <div className="hidden md:grid grid-cols-[80px_minmax(180px,1.4fr)_1fr_1fr_1fr_72px] gap-4 px-5 py-3 bg-paper-soft border-b border-line type-kicker text-[10px]">
@@ -61,21 +86,26 @@ function FeedTable({ feed }: { feed: FeedItem[] }) {
       </div>
 
       <div className="divide-y divide-line">
-        {feed.map((row) => (
-          <FeedRow key={`${row.txHash}-${row.logIndex}`} row={row} />
-        ))}
+        {feed.map((row) => {
+          const key = `${row.txHash}-${row.logIndex}`;
+          return <FeedRow key={key} row={row} isNew={newKeys.has(key)} />;
+        })}
       </div>
     </div>
   );
 }
 
-function FeedRow({ row }: { row: FeedItem }) {
+function FeedRow({ row, isNew }: { row: FeedItem; isNew?: boolean }) {
   const isBuy = row.type === "buy";
   const fallbackImg = `https://api.dicebear.com/9.x/initials/svg?seed=${row.tokenSymbol}&backgroundColor=ebebe3&textColor=0a0a0a`;
   const img = row.tokenImage || fallbackImg;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[80px_minmax(180px,1.4fr)_1fr_1fr_1fr_72px] gap-3 md:gap-4 px-5 py-4 bg-paper hover:bg-paper-soft transition-colors">
+    <div
+      className={`grid grid-cols-1 md:grid-cols-[80px_minmax(180px,1.4fr)_1fr_1fr_1fr_72px] gap-3 md:gap-4 px-5 py-4 bg-paper hover:bg-paper-soft transition-colors ${
+        isNew ? "motion-slide-in" : ""
+      }`}
+    >
       <div className="flex md:block items-center gap-3">
         <span
           className={`inline-block px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border ${
@@ -182,7 +212,7 @@ function LoadingRows() {
           {Array.from({ length: 6 }).map((__, cell) => (
             <div
               key={cell}
-              className="h-3 bg-paper-soft border border-line animate-pulse"
+              className="h-3 skeleton"
             />
           ))}
         </div>

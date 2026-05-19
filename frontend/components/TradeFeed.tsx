@@ -130,7 +130,7 @@ function LoadingRows() {
           {Array.from({ length: 5 }).map((__, cell) => (
             <div
               key={cell}
-              className="h-4 bg-paper-soft border border-line animate-pulse"
+              className="h-4 skeleton"
             />
           ))}
         </div>

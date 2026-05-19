@@ -223,10 +223,57 @@ html {
   }
 }
 
+/* Shimmer skeleton — replaces dashed/static loading borders.
+   Uses a warm gradient that sweeps left → right across the surface.
+   Background is set up to be wider than the element so the sweep travels
+   the full distance without exposing the edges. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-paper-soft) 0%,
+    var(--color-paper-mute) 50%,
+    var(--color-paper-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1400ms ease-in-out infinite;
+  border: 1px solid var(--color-line);
+}
+
+@keyframes skeleton-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Slide-in for new feed entries — used by ActivityFeed when a new row
+   appears at the top. */
+.motion-slide-in {
+  animation: motion-slide-in 280ms ease-out;
+}
+@keyframes motion-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+    background-color: var(--color-accent-soft);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .motion-fade-up,
   .motion-flash,
-  .dot-live {
+  .motion-slide-in,
+  .dot-live,
+  .skeleton {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
