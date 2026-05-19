@@ -34,8 +34,8 @@ const connectors = [
           metadata: {
             name: "Arc Pump",
             description: "Where ideas become markets.",
-            url: "https://arc-pump.vercel.app",
-            icons: [],
+            url: "https://arcpump.com",
+            icons: ["https://arcpump.com/favicon.ico"],
           },
         }),
       ]

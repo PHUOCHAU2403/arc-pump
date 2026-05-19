@@ -22,6 +22,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://arcpump.com"),
   title: "Arc Pump — Where ideas become markets",
   description:
     "A USDC-native launchpad for bonding-curve markets on Arc Network. Deploy in one transaction. Permanent liquidity. Economics you control.",
@@ -29,6 +30,13 @@ export const metadata: Metadata = {
     title: "Arc Pump",
     description: "Where ideas become markets. Built on Arc Network.",
     type: "website",
+    url: "https://arcpump.com",
+    siteName: "Arc Pump",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Arc Pump",
+    description: "Where ideas become markets. Built on Arc Network.",
   },
 };
 
