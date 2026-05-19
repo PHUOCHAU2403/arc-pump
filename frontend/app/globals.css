@@ -189,3 +189,46 @@ html {
     opacity: 0.4;
   }
 }
+
+/* =========================================================
+   Motion system
+   - Snappy 220ms ease-out fade-up entrances
+   - Stagger via inline --motion-delay CSS var
+   - Respects prefers-reduced-motion
+   ========================================================= */
+.motion-fade-up {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: motion-fade-up 220ms ease-out forwards;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+@keyframes motion-fade-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Brief accent flash on value change (used by useFlashOnChange) */
+.motion-flash {
+  animation: motion-flash 260ms ease-out;
+}
+@keyframes motion-flash {
+  0% {
+    color: var(--color-accent);
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-fade-up,
+  .motion-flash,
+  .dot-live {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

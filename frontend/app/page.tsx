@@ -11,6 +11,7 @@ import { useTokenStats } from "@/hooks/useTokenStats";
 import { useAllTokens } from "@/hooks/useAllTokens";
 import { GlobalStats } from "@/components/GlobalStats";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { CountUp } from "@/components/CountUp";
 import type { TokenInfo } from "@/lib/types";
 import Link from "next/link";
 
@@ -147,26 +148,38 @@ export default function Home() {
       {/* ============ HERO ============ */}
       <section className="max-w-6xl mx-auto px-6 sm:px-8 pt-20 sm:pt-32 pb-20">
         <div className="max-w-3xl">
-          <div className="flex items-center gap-2 mb-8">
+          <div
+            className="flex items-center gap-2 mb-8 motion-fade-up"
+            style={{ ["--motion-delay" as string]: "0ms" }}
+          >
             <span className="dot-live" />
             <span className="type-kicker">Now live on Arc</span>
           </div>
 
-          <h1 className="type-display mb-8 text-ink">
+          <h1
+            className="type-display mb-8 text-ink motion-fade-up"
+            style={{ ["--motion-delay" as string]: "80ms" }}
+          >
             Where ideas
             <br />
             become{" "}
             <span className="font-display italic text-accent">markets.</span>
           </h1>
 
-          <p className="text-lg sm:text-xl text-ink-mute max-w-2xl leading-relaxed mb-10">
+          <p
+            className="text-lg sm:text-xl text-ink-mute max-w-2xl leading-relaxed mb-10 motion-fade-up"
+            style={{ ["--motion-delay" as string]: "180ms" }}
+          >
             Arc Pump is a USDC&#8209;native launchpad for bonding&#8209;curve
             markets. Deploy in one transaction, with permanent liquidity and
             economics you control. No graduation theater, no hidden levers,
             no rug-pull surface.
           </p>
 
-          <div className="flex flex-wrap items-center gap-6">
+          <div
+            className="flex flex-wrap items-center gap-6 motion-fade-up"
+            style={{ ["--motion-delay" as string]: "260ms" }}
+          >
             <Link
               href="/create"
               className="btn-primary px-7 py-3.5 text-sm font-medium tracking-wide rounded-sm"
@@ -188,7 +201,11 @@ export default function Home() {
       {/* ============ PROTOCOL STRIP ============ */}
       <section className="border-y border-line bg-paper-soft">
         <div className="max-w-6xl mx-auto px-6 sm:px-8 grid grid-cols-3 divide-x divide-line">
-          <Stat value={String(totalCount)} label="Markets launched" />
+          <Stat
+            value={String(totalCount)}
+            numericValue={totalCount}
+            label="Markets launched"
+          />
           <Stat value="1.00" label="Launch fee" unit="USDC" />
           <Stat value="Linear" label="Bonding curve" />
         </div>
@@ -246,8 +263,8 @@ export default function Home() {
           <SearchEmptyState query={search} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-line border border-line">
-            {filtered.map((t) => (
-              <TokenRow key={t.token} token={t} />
+            {filtered.map((t, i) => (
+              <TokenRow key={t.token} token={t} index={i} />
             ))}
           </div>
         )}
@@ -326,17 +343,30 @@ function Stat({
   value,
   label,
   unit,
+  numericValue,
 }: {
   value: string;
   label: string;
   unit?: string;
+  /**
+   * Provide a numeric value to enable the count-up animation. The static
+   * `value` string is used as the SSR fallback / formatter result.
+   */
+  numericValue?: number;
 }) {
   return (
     <div className="px-6 sm:px-8 py-8 sm:py-10">
       <div className="type-kicker mb-3">{label}</div>
       <div className="flex items-baseline gap-1.5">
         <span className="type-mono-stat text-3xl sm:text-4xl text-ink">
-          {value}
+          {typeof numericValue === "number" ? (
+            <CountUp
+              value={numericValue}
+              format={(v) => Math.round(v).toLocaleString()}
+            />
+          ) : (
+            value
+          )}
         </span>
         {unit && (
           <span className="text-sm text-ink-mute font-mono">{unit}</span>
@@ -346,14 +376,19 @@ function Stat({
   );
 }
 
-function TokenRow({ token }: { token: TokenInfo }) {
+function TokenRow({ token, index = 0 }: { token: TokenInfo; index?: number }) {
   const fallbackImg = `https://api.dicebear.com/9.x/initials/svg?seed=${token.symbol}&backgroundColor=ebebe3&textColor=0a0a0a`;
   const img = token.imageURI || fallbackImg;
+
+  // Cap the stagger so a list of 50 doesn't take 2s. After the 12th card the
+  // delay flatlines — feels intentional, not interminable.
+  const motionDelay = Math.min(index, 12) * 35;
 
   return (
     <Link
       href={`/token/${token.token}`}
-      className="group block bg-paper hover:bg-paper-soft p-6 transition-colors"
+      className="group block bg-paper hover:bg-paper-soft p-6 transition-colors motion-fade-up"
+      style={{ ["--motion-delay" as string]: `${motionDelay}ms` }}
     >
       <div className="flex items-start gap-4 mb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}

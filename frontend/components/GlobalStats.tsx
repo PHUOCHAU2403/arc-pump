@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useActivityFeed } from "@/hooks/useActivityFeed";
 import { formatUsdc } from "@/lib/blockchain";
+import { CountUp } from "@/components/CountUp";
 
 const SECONDS_24H = 24 * 60 * 60;
 
@@ -79,18 +80,27 @@ export function GlobalStats() {
         <Cell
           label="24h volume"
           value={formatUsdc(stats.volume24hWei, 2)}
+          numericValue={Number(stats.volume24hWei) / 1e18}
+          numericFormat={(v) =>
+            v.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          }
           unit="USDC"
           loading={isLoading}
         />
         <Cell
           label="24h trades"
           value={String(stats.tradeCount24h)}
+          numericValue={stats.tradeCount24h}
           unit="executed"
           loading={isLoading}
         />
         <Cell
           label="24h traders"
           value={String(stats.uniqueTraders24h)}
+          numericValue={stats.uniqueTraders24h}
           unit="unique"
           loading={isLoading}
         />
@@ -110,18 +120,38 @@ function Cell({
   value,
   unit,
   loading,
+  numericValue,
+  numericFormat,
 }: {
   label: string;
   value: string;
   unit?: string;
   loading?: boolean;
+  /** Enables count-up animation when provided. */
+  numericValue?: number;
+  /** Custom formatter for the tweened in-flight value. */
+  numericFormat?: (value: number) => string;
 }) {
+  const showCounter =
+    !loading && typeof numericValue === "number" && numericValue > 0;
+
   return (
     <div className="px-6 sm:px-8 py-8 sm:py-10">
       <div className="type-kicker mb-3">{label}</div>
       <div className="flex items-baseline gap-1.5">
         <span className="type-mono-stat text-2xl sm:text-3xl text-ink">
-          {loading ? "—" : value}
+          {loading ? (
+            "—"
+          ) : showCounter ? (
+            <CountUp
+              value={numericValue as number}
+              format={
+                numericFormat ?? ((v) => Math.round(v).toLocaleString())
+              }
+            />
+          ) : (
+            value
+          )}
         </span>
         {unit && (
           <span className="text-sm text-ink-mute font-mono">{unit}</span>
