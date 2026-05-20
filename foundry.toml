@@ -9,3 +9,5 @@ via_ir = true
 
 [rpc_endpoints]
 arc_testnet = "https://rpc.testnet.arc.network"
+tempo = "https://rpc.tempo.xyz"
+tempo_testnet = "https://rpc.moderato.tempo.xyz"

@@ -1,0 +1,14 @@
+name = "tempo-pump-mpp"
+main = "src/worker.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets set via: wrangler secret put DEPLOYER_KEY
+# (don't commit private keys)
+
+[vars]
+FACTORY_ADDRESS = "0x42bce0940b286b29a7be50c3c7c89302a48e28ff"
+PATHUSD_ADDRESS = "0x20C0000000000000000000000000000000000000"
+DEPLOYER_ADDRESS = "0xe7013E5686b4C50B9D8e7FdB76F74baA08909494"
+RPC_URL = "https://rpc.tempo.xyz"
+PRICE_PATHUSD = "0.10"
