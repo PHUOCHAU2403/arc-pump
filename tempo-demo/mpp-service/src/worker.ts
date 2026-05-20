@@ -78,6 +78,28 @@ interface LaunchRequest {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await handle(request, env);
+    } catch (err) {
+      console.error("[fatal]", err);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Worker exception",
+          message: err instanceof Error ? err.message : String(err),
+          stack:
+            err instanceof Error ? err.stack?.split("\n").slice(0, 6) : undefined,
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
+  },
+};
+
+async function handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     // Health check + introspection.
@@ -111,19 +133,59 @@ export default {
 
     // ============ MPP charge ============
 
+    // Use tempo.charge directly instead of tempo() — the factory includes
+    // session+subscription which require a signing account. We only need
+    // one-time charges for paying per /launch call.
+    //
+    // getClient is required so mppx can verify the buyer's transfer landed
+    // on-chain before honoring the credential.
+    const tempoClient = createPublicClient({
+      chain: tempoChain,
+      transport: http(env.RPC_URL),
+    });
     const mppx = Mppx.create({
       methods: [
-        tempo({
+        tempo.charge({
           currency: env.PATHUSD_ADDRESS as Address,
           recipient: env.DEPLOYER_ADDRESS as Address,
+          getClient: () => tempoClient,
+          // Optimistic mode: broadcast without waiting for receipt. Skips
+          // sub-request budget burn on Cloudflare Workers and avoids the
+          // assertTransferLogs branch that we hit verification failures on.
+          waitForConfirmation: false,
         }),
       ],
       secretKey: env.MPP_SECRET_KEY,
       realm: "tempo-pump",
     });
 
+    // Surface verification failures to the response so we can debug.
+    let lastFailure: unknown;
+    mppx.on("payment.failed", (ctx: unknown) => {
+      lastFailure = ctx;
+      console.error("[payment.failed]", JSON.stringify(ctx, bigintReplacer));
+    });
+
     const charged = await mppx.charge({ amount: env.PRICE_PATHUSD })(request);
-    if (charged.status === 402) return charged.challenge;
+    if (charged.status === 402) {
+      // Augment the 402 with verification details if we have any (only set
+      // after at least one failed retry — first 402 is just the initial
+      // challenge).
+      if (lastFailure) {
+        const body = await charged.challenge.clone().text();
+        return new Response(
+          JSON.stringify({
+            ...JSON.parse(body),
+            debug_failure: JSON.parse(JSON.stringify(lastFailure, bigintReplacer)),
+          }),
+          {
+            status: 402,
+            headers: charged.challenge.headers,
+          }
+        );
+      }
+      return charged.challenge;
+    }
 
     // ============ Execute the launch on-chain ============
 
@@ -265,10 +327,17 @@ export default {
         )
       );
     }
-  },
-};
+}
 
 // ============ Validation ============
+
+function bigintReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+  return value;
+}
 
 function validateLaunch(body: LaunchRequest): { error?: string } {
   if (!body.name || typeof body.name !== "string" || body.name.length > 32) {
