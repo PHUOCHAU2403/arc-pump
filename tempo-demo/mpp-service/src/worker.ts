@@ -1,45 +1,37 @@
 /**
- * tempo-pump-mpp — MPP endpoint that lets AI agents launch a memecoin on
- * Tempo mainnet through arcpump.com's MemeFactoryTempoV2.
+ * tempo-pump-mpp — MPP-compatible endpoint that lets AI agents launch a
+ * memecoin on Tempo mainnet through Arc Pump's MemeFactoryTempoV2.
  *
- * Flow:
- *   1. Agent does `tempo request -X POST https://<worker>/launch \
- *        --json '{"name":"Claude","symbol":"CLD","supply":1000000,"fee":100}'`
- *   2. We respond with HTTP 402 + MPP challenge (price = $0.10 pathUSD,
- *      recipient = deployer).
- *   3. Agent's Tempo CLI auto-pays from its wallet, retries the request with
- *      `Authorization: Payment ...` header.
- *   4. We verify the receipt, then on the server side:
- *        a. approve(factory, createFee) on pathUSD (if not already)
- *        b. factory.createToken(name, symbol, "", description, supplyWei, feeBps)
- *      using the deployer key.
- *   5. Return the new MemeToken address + tx hash with a Payment-Receipt header.
+ * Verification model
+ *
+ * For the demo we hand-roll the HTTP 402 challenge (matches MPP shape so
+ * the Tempo CLI happily auto-pays and retries) and trust any retry that
+ * carries an `Authorization: Payment ...` header. Strict on-chain receipt
+ * verification is left for a follow-up — the cost per call is small and
+ * the demo angle is "AI launched a coin," not "payments fraud surface."
+ *
+ * Tempo-native transactions
+ *
+ * Tempo's EVM disables CALLVALUE/BALANCE/SELFBALANCE and uses TIP-20
+ * stablecoins for gas. viem's standard `writeContract` builds a normal
+ * EIP-1559 tx and fails because the deployer has no native ETH balance.
+ * We use viem's first-class Tempo support (`viem/tempo`) to build
+ * Tempo-type transactions that pay gas in pathUSD.
  */
 
-import { Mppx, tempo } from "mppx/server";
 import {
-  createPublicClient,
-  createWalletClient,
-  defineChain,
-  decodeEventLog,
+  createClient,
   http,
   parseAbi,
+  publicActions,
+  walletActions,
+  decodeEventLog,
+  encodeFunctionData,
   type Address,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-
-// ============ Chain ============
-
-const tempoChain = defineChain({
-  id: 4217,
-  name: "Tempo",
-  nativeCurrency: { name: "USD", symbol: "USD", decimals: 6 },
-  rpcUrls: { default: { http: ["https://rpc.tempo.xyz"] } },
-  blockExplorers: {
-    default: { name: "Tempo Explorer", url: "https://explore.tempo.xyz" },
-  },
-});
+import { Chain, tempoActions } from "viem/tempo";
 
 // ============ ABIs ============
 
@@ -62,15 +54,22 @@ interface Env {
   DEPLOYER_ADDRESS: string;
   RPC_URL: string;
   PRICE_PATHUSD: string;
-  DEPLOYER_KEY: string; // wrangler secret
-  MPP_SECRET_KEY: string; // wrangler secret — HMAC for challenge IDs
+  DEPLOYER_KEY: string;
+  MPP_SECRET_KEY: string;
+  /**
+   * Token used to pay gas for server-side txs (approve / createToken).
+   * Distinct from PATHUSD_ADDRESS which is the contract-level fee currency.
+   * Set to USDC.e (`0x20C00…b9537d11c60E8b50`) so the deployer can use its
+   * larger USDC.e balance for gas while keeping createFee in pathUSD.
+   */
+  GAS_FEE_TOKEN: string;
 }
 
 interface LaunchRequest {
   name: string;
   symbol: string;
-  supply?: number; // whole tokens (1M = 1_000_000). Default 1M.
-  fee?: number; // tradeFeeBps (100 = 1%). Default 0.
+  supply?: number;
+  fee?: number;
   description?: string;
 }
 
@@ -87,8 +86,6 @@ export default {
           ok: false,
           error: "Worker exception",
           message: err instanceof Error ? err.message : String(err),
-          stack:
-            err instanceof Error ? err.stack?.split("\n").slice(0, 6) : undefined,
         }),
         {
           status: 500,
@@ -100,254 +97,226 @@ export default {
 };
 
 async function handle(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+  const url = new URL(request.url);
 
-    // Health check + introspection.
-    if (request.method === "GET" && url.pathname === "/") {
-      return Response.json({
-        service: "tempo-pump-mpp",
-        version: "0.1.0",
-        factory: env.FACTORY_ADDRESS,
-        currency: env.PATHUSD_ADDRESS,
-        price: env.PRICE_PATHUSD,
-        endpoints: {
-          launch: {
-            method: "POST",
-            path: "/launch",
-            body: {
-              name: "string",
-              symbol: "string",
-              supply: "number (default 1000000)",
-              fee: "number (bps, default 0)",
-              description: "string (optional)",
-            },
-            price: `${env.PRICE_PATHUSD} pathUSD`,
+  if (request.method === "GET" && url.pathname === "/") {
+    return Response.json({
+      service: "tempo-pump-mpp",
+      version: "0.3.0",
+      factory: env.FACTORY_ADDRESS,
+      currency: env.PATHUSD_ADDRESS,
+      price: env.PRICE_PATHUSD,
+      endpoints: {
+        launch: {
+          method: "POST",
+          path: "/launch",
+          body: {
+            name: "string",
+            symbol: "string",
+            supply: "number (default 1000000)",
+            fee: "number (bps, default 0)",
+            description: "string (optional)",
           },
+          price: `${env.PRICE_PATHUSD} pathUSD`,
         },
-      });
-    }
-
-    if (request.method !== "POST" || url.pathname !== "/launch") {
-      return new Response("Not found", { status: 404 });
-    }
-
-    // ============ MPP charge ============
-
-    // Use tempo.charge directly instead of tempo() — the factory includes
-    // session+subscription which require a signing account. We only need
-    // one-time charges for paying per /launch call.
-    //
-    // getClient is required so mppx can verify the buyer's transfer landed
-    // on-chain before honoring the credential.
-    const tempoClient = createPublicClient({
-      chain: tempoChain,
-      transport: http(env.RPC_URL),
+      },
     });
-    const mppx = Mppx.create({
-      methods: [
-        tempo.charge({
-          currency: env.PATHUSD_ADDRESS as Address,
-          recipient: env.DEPLOYER_ADDRESS as Address,
-          getClient: () => tempoClient,
-          // Optimistic mode: broadcast without waiting for receipt. Skips
-          // sub-request budget burn on Cloudflare Workers and avoids the
-          // assertTransferLogs branch that we hit verification failures on.
-          waitForConfirmation: false,
-        }),
-      ],
-      secretKey: env.MPP_SECRET_KEY,
-      realm: "tempo-pump",
-    });
+  }
 
-    // Surface verification failures to the response so we can debug.
-    let lastFailure: unknown;
-    mppx.on("payment.failed", (ctx: unknown) => {
-      lastFailure = ctx;
-      console.error("[payment.failed]", JSON.stringify(ctx, bigintReplacer));
-    });
+  if (request.method !== "POST" || url.pathname !== "/launch") {
+    return new Response("Not found", { status: 404 });
+  }
 
-    const charged = await mppx.charge({ amount: env.PRICE_PATHUSD })(request);
-    if (charged.status === 402) {
-      // Augment the 402 with verification details if we have any (only set
-      // after at least one failed retry — first 402 is just the initial
-      // challenge).
-      if (lastFailure) {
-        const body = await charged.challenge.clone().text();
-        return new Response(
-          JSON.stringify({
-            ...JSON.parse(body),
-            debug_failure: JSON.parse(JSON.stringify(lastFailure, bigintReplacer)),
-          }),
-          {
-            status: 402,
-            headers: charged.challenge.headers,
-          }
-        );
-      }
-      return charged.challenge;
+  // ============ MPP challenge (first call) ============
+
+  const auth = request.headers.get("authorization") ?? "";
+  const hasPaymentAuth = /^Payment\s/i.test(auth);
+
+  if (!hasPaymentAuth) {
+    return emit402Challenge(env);
+  }
+
+  // ============ Process launch (second call) ============
+
+  let body: LaunchRequest;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError(400, "Invalid JSON body");
+  }
+
+  const validation = validateLaunch(body);
+  if (validation.error) {
+    return jsonError(400, validation.error);
+  }
+
+  const factory = env.FACTORY_ADDRESS as Address;
+  const pathUSD = env.PATHUSD_ADDRESS as Address;
+  const account = privateKeyToAccount(env.DEPLOYER_KEY as Hex);
+
+  // Tempo-native client: knows about TIP-20 fee tokens, type 0x76 txs, etc.
+  const client = createClient({
+    account,
+    chain: Chain.tempo,
+    transport: http(env.RPC_URL),
+  })
+    .extend(publicActions)
+    .extend(walletActions)
+    .extend(tempoActions());
+
+  // ----- Approve pathUSD to factory if needed -----
+  const createFee = await client.readContract({
+    address: factory,
+    abi: factoryAbi,
+    functionName: "createFee",
+  });
+
+  const allowance = await client.readContract({
+    address: pathUSD,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [account.address, factory],
+  });
+
+  if (allowance < createFee) {
+    const approveAmount = createFee * 1_000n;
+    const approveData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [factory, approveAmount],
+    });
+    const approveReceipt = await client.sendTransactionSync({
+      calls: [{ to: pathUSD, data: approveData }],
+      feeToken: env.GAS_FEE_TOKEN as Address,
+    });
+    if (approveReceipt.status !== "success") {
+      return jsonError(500, "approve(pathUSD → factory) reverted on Tempo");
     }
+  }
 
-    // ============ Execute the launch on-chain ============
+  // ----- Call factory.createToken -----
+  const supplyWei =
+    BigInt(body.supply ?? 1_000_000) * 1_000_000_000_000_000_000n;
+  const feeBps = body.fee ?? 0;
 
-    let body: LaunchRequest;
+  const launchData = encodeFunctionData({
+    abi: factoryAbi,
+    functionName: "createToken",
+    args: [
+      body.name,
+      body.symbol,
+      "",
+      body.description ?? "Launched by AI agent via tempo-pump-mpp",
+      supplyWei,
+      feeBps,
+    ],
+  });
+  const launchReceipt = await client.sendTransactionSync({
+    calls: [{ to: factory, data: launchData }],
+    feeToken: env.GAS_FEE_TOKEN as Address,
+  });
+
+  if (launchReceipt.status !== "success") {
+    return jsonError(500, "factory.createToken reverted on Tempo");
+  }
+
+  let tokenAddress: Address | undefined;
+  let curveAddress: Address | undefined;
+  for (const log of launchReceipt.logs) {
     try {
-      body = await request.clone().json();
+      const decoded = decodeEventLog({
+        abi: factoryAbi,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName === "TokenCreated") {
+        const args = decoded.args as { token: Address; curve: Address };
+        tokenAddress = args.token;
+        curveAddress = args.curve;
+        break;
+      }
     } catch {
-      return new Response(
-        JSON.stringify({ error: "Invalid JSON body" }),
-        { status: 400, headers: { "content-type": "application/json" } }
-      );
+      /* not the event we want */
     }
+  }
 
-    const validation = validateLaunch(body);
-    if (validation.error) {
-      return new Response(
-        JSON.stringify({ error: validation.error }),
-        { status: 400, headers: { "content-type": "application/json" } }
-      );
+  return Response.json({
+    ok: true,
+    name: body.name,
+    symbol: body.symbol,
+    supply: body.supply ?? 1_000_000,
+    tradeFeeBps: feeBps,
+    token: tokenAddress,
+    curve: curveAddress,
+    txHash: launchReceipt.transactionHash,
+    explorer: `https://explore.tempo.xyz/receipt/${launchReceipt.transactionHash}`,
+    tokenExplorer: tokenAddress
+      ? `https://explore.tempo.xyz/address/${tokenAddress}`
+      : undefined,
+  });
+}
+
+// ============ MPP 402 helpers ============
+
+function emit402Challenge(env: Env): Response {
+  const amountWei = Math.round(parseFloat(env.PRICE_PATHUSD) * 1_000_000).toString();
+  const challengeId = crypto.randomUUID().replace(/-/g, "");
+  const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+  const requestPayload = {
+    amount: amountWei,
+    currency: env.PATHUSD_ADDRESS,
+    recipient: env.DEPLOYER_ADDRESS,
+    methodDetails: { chainId: 4217 },
+  };
+  const requestB64 = base64urlEncode(JSON.stringify(requestPayload));
+
+  const wwwAuthenticate = [
+    `Payment id="${challengeId}"`,
+    `realm="tempo-pump"`,
+    `method="tempo"`,
+    `intent="charge"`,
+    `request="${requestB64}"`,
+    `expires="${expires}"`,
+  ].join(", ");
+
+  return new Response(
+    JSON.stringify({
+      type: "https://paymentauth.org/problems/payment-required",
+      title: "Payment Required",
+      status: 402,
+      detail: "Payment is required.",
+      challengeId,
+    }),
+    {
+      status: 402,
+      headers: {
+        "content-type": "application/problem+json",
+        "www-authenticate": wwwAuthenticate,
+        "cache-control": "no-store",
+      },
     }
+  );
+}
 
-    const account = privateKeyToAccount(env.DEPLOYER_KEY as Hex);
-    const publicClient = createPublicClient({
-      chain: tempoChain,
-      transport: http(env.RPC_URL),
-    });
-    const walletClient = createWalletClient({
-      account,
-      chain: tempoChain,
-      transport: http(env.RPC_URL),
-    });
+function base64urlEncode(input: string): string {
+  return btoa(input).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
-    const factory = env.FACTORY_ADDRESS as Address;
-    const pathUSD = env.PATHUSD_ADDRESS as Address;
-
-    try {
-      // Approve enough pathUSD to factory if allowance < createFee.
-      const createFee = await publicClient.readContract({
-        address: factory,
-        abi: factoryAbi,
-        functionName: "createFee",
-      });
-
-      const allowance = await publicClient.readContract({
-        address: pathUSD,
-        abi: erc20Abi,
-        functionName: "allowance",
-        args: [account.address, factory],
-      });
-
-      if (allowance < createFee) {
-        // Approve a large amount to avoid re-approving every launch.
-        const approveAmount = createFee * 1_000n;
-        const approveHash = await walletClient.writeContract({
-          address: pathUSD,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [factory, approveAmount],
-          // @ts-expect-error - tempo-specific field, viem doesn't know about it
-          feeToken: pathUSD,
-        });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      }
-
-      // Call factory.createToken
-      const supplyWei =
-        BigInt(body.supply ?? 1_000_000) * 1_000_000_000_000_000_000n;
-      const feeBps = body.fee ?? 0;
-
-      const txHash = await walletClient.writeContract({
-        address: factory,
-        abi: factoryAbi,
-        functionName: "createToken",
-        args: [
-          body.name,
-          body.symbol,
-          "",
-          body.description ?? "Launched by AI agent via tempo-pump-mpp",
-          supplyWei,
-          feeBps,
-        ],
-        // @ts-expect-error - tempo-specific field
-        feeToken: pathUSD,
-      });
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: txHash,
-      });
-
-      // Parse TokenCreated event to extract new addresses.
-      let tokenAddress: Address | undefined;
-      let curveAddress: Address | undefined;
-      for (const log of receipt.logs) {
-        try {
-          const decoded = decodeEventLog({
-            abi: factoryAbi,
-            data: log.data,
-            topics: log.topics,
-          });
-          if (decoded.eventName === "TokenCreated") {
-            const args = decoded.args as {
-              token: Address;
-              curve: Address;
-            };
-            tokenAddress = args.token;
-            curveAddress = args.curve;
-            break;
-          }
-        } catch {
-          /* not the event we want */
-        }
-      }
-
-      return charged.withReceipt(
-        Response.json({
-          ok: true,
-          name: body.name,
-          symbol: body.symbol,
-          supply: body.supply ?? 1_000_000,
-          tradeFeeBps: feeBps,
-          token: tokenAddress,
-          curve: curveAddress,
-          txHash,
-          explorer: `https://explore.tempo.xyz/receipt/${txHash}`,
-          tokenExplorer: tokenAddress
-            ? `https://explore.tempo.xyz/address/${tokenAddress}`
-            : undefined,
-        })
-      );
-    } catch (err) {
-      console.error("[launch] failed", err);
-      return charged.withReceipt(
-        new Response(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-          { status: 500, headers: { "content-type": "application/json" } }
-        )
-      );
-    }
+function jsonError(status: number, message: string): Response {
+  return new Response(JSON.stringify({ ok: false, error: message }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 // ============ Validation ============
-
-function bigintReplacer(_key: string, value: unknown): unknown {
-  if (typeof value === "bigint") return value.toString();
-  if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
-  }
-  return value;
-}
 
 function validateLaunch(body: LaunchRequest): { error?: string } {
   if (!body.name || typeof body.name !== "string" || body.name.length > 32) {
     return { error: "name is required (1-32 chars)" };
   }
-  if (
-    !body.symbol ||
-    typeof body.symbol !== "string" ||
-    body.symbol.length > 10
-  ) {
+  if (!body.symbol || typeof body.symbol !== "string" || body.symbol.length > 10) {
     return { error: "symbol is required (1-10 chars)" };
   }
   if (body.supply !== undefined) {

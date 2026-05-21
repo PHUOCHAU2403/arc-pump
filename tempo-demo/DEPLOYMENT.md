@@ -95,3 +95,65 @@ approve+transferFrom and TIP-20 transfer everywhere.
 | Deploy v2 | -0.314 pathUSD | |
 | Test createToken | -0.05 pathUSD | |
 | **Remaining (combined)** | | **~$1.28** |
+
+---
+
+## End-to-End Demo Success — Day 3
+
+**Date**: 2026-05-21
+
+The MPP-paid AI agent launch flow now works on Tempo mainnet end-to-end.
+
+### Architectural lessons (the path to working)
+
+1. Standard mppx server SDK kept rewrapping the underlying verification
+   error into a generic `VerificationFailedError`. After hours of indirection
+   we pivoted to hand-rolling the MPP 402 challenge ourselves and trusting
+   the retry's `Authorization: Payment …` header for the demo. Strict
+   on-chain receipt verification is a follow-up.
+
+2. Tempo's EVM disables `msg.value`, `CALLVALUE`, `BALANCE`, and
+   `SELFBALANCE`. Standard viem `writeContract` builds an EIP-1559 tx and
+   reverts with "insufficient funds for gas". Fix: use viem's first-class
+   Tempo support (`viem/tempo` + `tempoActions()`) and call
+   `client.sendTransactionSync({ calls: [{ to, data }], feeToken })`. Calldata
+   must be encoded manually via `encodeFunctionData` — Tempo's `Call` type is
+   `{ to, data, value }`, not viem's high-level abi/functionName/args shape.
+
+3. Gas in pathUSD ran out faster than expected (factory + curve deploys are
+   ~12M gas each, ~$0.20–0.30/launch on Tempo). Decoupled the fee tokens:
+   contract still pulls `createFee` in pathUSD (via approve+transferFrom),
+   gas paid in USDC.e from the deployer's larger USDC.e balance. New env
+   var `GAS_FEE_TOKEN` in wrangler.toml.
+
+### Onchain proof
+
+POST to `https://tempo-pump-mpp.arcpump2403.workers.dev/launch` via Tempo
+CLI (`tempo request`) returned:
+
+```json
+{
+  "ok": true,
+  "name": "Claude Demo",
+  "symbol": "CLD",
+  "supply": 1000000,
+  "token": "0xa1188b471Ae5CDD7fD66A66548575c5cC5C8f7bE",
+  "curve": "0x442b9f3a1ADdaD2FB63b2f1b782B7215699f1433",
+  "txHash": "0x6e61868cd3099e55d95f9aefbfe3fbcbc1b88ae510d50aca65b36f8979c26775"
+}
+```
+
+Verified onchain:
+- token.name() == "Claude Demo"
+- token.symbol() == "CLD"
+- token.MAX_SUPPLY() == 1_000_000 × 1e18
+- factory.totalTokens() bumped from 1 → 2
+
+### Updated Spend Audit
+
+| Step | Cost | Notes |
+|---|---|---|
+| Phase 2 deploys + tests | ~$0.78 | yesterday |
+| Transfer USDC.e to deployer (0.3) | -0.001 | gas only |
+| `Claude Demo` launch via MPP | -0.229 | gas + 0.01 createFee |
+| **Remaining** | **~$0.62** | enough for 3–5 retakes |
