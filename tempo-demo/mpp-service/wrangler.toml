@@ -24,3 +24,13 @@ PRICE_PATHUSD = "0.10"
 # /launch-and-bootstrap charges more — server does createToken + approve + buy
 # (3 tx) so cost is higher and the agent receives more value.
 PRICE_LIFECYCLE_PATHUSD = "0.05"
+
+# ============ Autonomous agent ============
+# Cron triggers fire scheduled() handler every 6 hours. The handler picks a
+# random action (launch / buy / claim / heartbeat) and records to KV.
+[triggers]
+crons = ["0 */6 * * *"]
+
+[[kv_namespaces]]
+binding = "AGENT_LOG"
+id = "a5ebdb07177542e8981d70378de553b2"
