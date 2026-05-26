@@ -44,6 +44,17 @@ const factoryAbi = parseAbi([
 const erc20Abi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+]);
+
+const curveAbi = parseAbi([
+  "function buy(uint256 amount)",
+  "function getBuyCost(uint256 amount) view returns (uint256)",
+  "function feeFor(uint256 amount, bool isBuy) view returns (uint256)",
+  "function spotPrice() view returns (uint256)",
+  "function reserve() view returns (uint256)",
+  "function creatorFeesAccrued() view returns (uint256)",
+  "function tradeFeeBps() view returns (uint16)",
 ]);
 
 // ============ Env types ============
@@ -63,6 +74,8 @@ interface Env {
    * larger USDC.e balance for gas while keeping createFee in pathUSD.
    */
   GAS_FEE_TOKEN: string;
+  /** Price (pathUSD whole units) for /launch-and-bootstrap. Default "0.20". */
+  PRICE_LIFECYCLE_PATHUSD?: string;
 }
 
 interface LaunchRequest {
@@ -71,6 +84,8 @@ interface LaunchRequest {
   supply?: number;
   fee?: number;
   description?: string;
+  /** /launch-and-bootstrap only: tokens the agent buys from the curve after launch. */
+  bootstrapTokens?: number;
 }
 
 // ============ Handler ============
@@ -102,14 +117,16 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/") {
     return Response.json({
       service: "tempo-pump-mpp",
-      version: "0.3.0",
+      version: "0.4.0",
       factory: env.FACTORY_ADDRESS,
       currency: env.PATHUSD_ADDRESS,
-      price: env.PRICE_PATHUSD,
+      price_launch: env.PRICE_PATHUSD,
+      price_lifecycle: env.PRICE_LIFECYCLE_PATHUSD ?? "0.05",
       endpoints: {
         launch: {
           method: "POST",
           path: "/launch",
+          description: "Deploy a token + curve via factory.createToken.",
           body: {
             name: "string",
             symbol: "string",
@@ -119,11 +136,31 @@ async function handle(request: Request, env: Env): Promise<Response> {
           },
           price: `${env.PRICE_PATHUSD} pathUSD`,
         },
+        lifecycle: {
+          method: "POST",
+          path: "/launch-and-bootstrap",
+          description:
+            "Atomic lifecycle for an AI agent: launch the token, approve the curve, buy the bootstrap tranche, return final state. Agent becomes both the creator (earning 80% of future trade fees) and the first holder.",
+          body: {
+            name: "string",
+            symbol: "string",
+            supply: "number (default 1000000)",
+            fee: "number (bps, default 100 = 1%)",
+            bootstrapTokens:
+              "number (whole tokens the agent buys after launch, default 1000)",
+            description: "string (optional)",
+          },
+          price: `${env.PRICE_LIFECYCLE_PATHUSD ?? "0.05"} pathUSD`,
+        },
       },
     });
   }
 
-  if (request.method !== "POST" || url.pathname !== "/launch") {
+  const isLaunch = request.method === "POST" && url.pathname === "/launch";
+  const isLifecycle =
+    request.method === "POST" && url.pathname === "/launch-and-bootstrap";
+
+  if (!isLaunch && !isLifecycle) {
     return new Response("Not found", { status: 404 });
   }
 
@@ -133,16 +170,33 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const hasPaymentAuth = /^Payment\s/i.test(auth);
 
   if (!hasPaymentAuth) {
-    return emit402Challenge(env);
+    const price = isLifecycle
+      ? env.PRICE_LIFECYCLE_PATHUSD ?? "0.05"
+      : env.PRICE_PATHUSD;
+    return emit402Challenge(env, price);
   }
 
   // ============ Process launch (second call) ============
 
   let body: LaunchRequest;
+  let rawBody: string | undefined;
   try {
-    body = await request.json();
-  } catch {
-    return jsonError(400, "Invalid JSON body");
+    rawBody = await request.text();
+    body = JSON.parse(rawBody);
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "Invalid JSON body",
+        rawBody: rawBody ?? "<no body>",
+        rawBodyLength: rawBody?.length ?? 0,
+        parseError: err instanceof Error ? err.message : String(err),
+      }),
+      {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }
+    );
   }
 
   const validation = validateLaunch(body);
@@ -240,6 +294,106 @@ async function handle(request: Request, env: Env): Promise<Response> {
     }
   }
 
+  // ============ /launch — return after createToken ============
+  if (isLaunch) {
+    return Response.json({
+      ok: true,
+      name: body.name,
+      symbol: body.symbol,
+      supply: body.supply ?? 1_000_000,
+      tradeFeeBps: feeBps,
+      token: tokenAddress,
+      curve: curveAddress,
+      txHash: launchReceipt.transactionHash,
+      explorer: `https://explore.tempo.xyz/receipt/${launchReceipt.transactionHash}`,
+      tokenExplorer: tokenAddress
+        ? `https://explore.tempo.xyz/address/${tokenAddress}`
+        : undefined,
+    });
+  }
+
+  // ============ /launch-and-bootstrap — continue with buy ============
+  if (!curveAddress || !tokenAddress) {
+    return jsonError(500, "Could not locate new curve/token in TokenCreated event");
+  }
+
+  const bootstrapTokens = Math.min(
+    Math.max(Math.floor(body.bootstrapTokens ?? 100), 1),
+    100_000
+  );
+  const bootstrapWei =
+    BigInt(bootstrapTokens) * 1_000_000_000_000_000_000n;
+
+  // Quote cost + fee for the buy on the brand-new curve.
+  const buyCost = await client.readContract({
+    address: curveAddress,
+    abi: curveAbi,
+    functionName: "getBuyCost",
+    args: [bootstrapWei],
+  });
+  const buyFee = await client.readContract({
+    address: curveAddress,
+    abi: curveAbi,
+    functionName: "feeFor",
+    args: [bootstrapWei, true],
+  });
+  const total = buyCost + buyFee;
+
+  // Approve pathUSD to the new curve (curve will transferFrom for cost + fee).
+  if (total > 0n) {
+    const approveAmount = total * 10n; // buffer for future buys from same agent
+    const approveCurveData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [curveAddress, approveAmount],
+    });
+    const approveCurveReceipt = await client.sendTransactionSync({
+      calls: [{ to: pathUSD, data: approveCurveData }],
+      feeToken: env.GAS_FEE_TOKEN as Address,
+    });
+    if (approveCurveReceipt.status !== "success") {
+      return jsonError(500, "approve(pathUSD → curve) reverted on Tempo");
+    }
+  }
+
+  const buyData = encodeFunctionData({
+    abi: curveAbi,
+    functionName: "buy",
+    args: [bootstrapWei],
+  });
+  const buyReceipt = await client.sendTransactionSync({
+    calls: [{ to: curveAddress, data: buyData }],
+    feeToken: env.GAS_FEE_TOKEN as Address,
+  });
+  if (buyReceipt.status !== "success") {
+    return jsonError(500, "curve.buy reverted on Tempo");
+  }
+
+  // Read final state for narrative payload.
+  const [reserve, spotPrice, tradeFeeBpsLive, agentBalance] = await Promise.all([
+    client.readContract({
+      address: curveAddress,
+      abi: curveAbi,
+      functionName: "reserve",
+    }),
+    client.readContract({
+      address: curveAddress,
+      abi: curveAbi,
+      functionName: "spotPrice",
+    }),
+    client.readContract({
+      address: curveAddress,
+      abi: curveAbi,
+      functionName: "tradeFeeBps",
+    }),
+    client.readContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
+    }),
+  ]);
+
   return Response.json({
     ok: true,
     name: body.name,
@@ -248,18 +402,35 @@ async function handle(request: Request, env: Env): Promise<Response> {
     tradeFeeBps: feeBps,
     token: tokenAddress,
     curve: curveAddress,
-    txHash: launchReceipt.transactionHash,
-    explorer: `https://explore.tempo.xyz/receipt/${launchReceipt.transactionHash}`,
-    tokenExplorer: tokenAddress
-      ? `https://explore.tempo.xyz/address/${tokenAddress}`
-      : undefined,
+    launchTx: launchReceipt.transactionHash,
+    bootstrapTx: buyReceipt.transactionHash,
+    bootstrap: {
+      tokens: bootstrapTokens,
+      costPathUSD: (Number(buyCost) / 1_000_000).toFixed(6),
+      feePathUSD: (Number(buyFee) / 1_000_000).toFixed(6),
+      totalPathUSD: (Number(total) / 1_000_000).toFixed(6),
+    },
+    state: {
+      reservePathUSD: (Number(reserve) / 1_000_000).toFixed(6),
+      spotPricePathUSD: (Number(spotPrice) / 1_000_000).toFixed(9),
+      agentBalanceTokens: Number(agentBalance) / 1e18,
+      tradeFeeBps: Number(tradeFeeBpsLive),
+      creatorShareOfFuture: `${
+        Number(tradeFeeBpsLive) > 0
+          ? ((Number(tradeFeeBpsLive) * 80) / 100 / 100).toFixed(2)
+          : "0.00"
+      }% (80% of ${(Number(tradeFeeBpsLive) / 100).toFixed(2)}% trade fee)`,
+    },
+    explorer: `https://explore.tempo.xyz/receipt/${buyReceipt.transactionHash}`,
+    tokenExplorer: `https://explore.tempo.xyz/address/${tokenAddress}`,
   });
 }
 
 // ============ MPP 402 helpers ============
 
-function emit402Challenge(env: Env): Response {
-  const amountWei = Math.round(parseFloat(env.PRICE_PATHUSD) * 1_000_000).toString();
+function emit402Challenge(env: Env, priceWhole?: string): Response {
+  const price = priceWhole ?? env.PRICE_PATHUSD;
+  const amountWei = Math.round(parseFloat(price) * 1_000_000).toString();
   const challengeId = crypto.randomUUID().replace(/-/g, "");
   const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 

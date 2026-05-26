@@ -21,3 +21,6 @@ GAS_FEE_TOKEN = "0x20C000000000000000000000b9537d11c60E8b50"
 DEPLOYER_ADDRESS = "0xe7013E5686b4C50B9D8e7FdB76F74baA08909494"
 RPC_URL = "https://rpc.tempo.xyz"
 PRICE_PATHUSD = "0.10"
+# /launch-and-bootstrap charges more — server does createToken + approve + buy
+# (3 tx) so cost is higher and the agent receives more value.
+PRICE_LIFECYCLE_PATHUSD = "0.05"
