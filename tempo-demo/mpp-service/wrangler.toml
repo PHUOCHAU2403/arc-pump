@@ -18,7 +18,17 @@ PATHUSD_ADDRESS = "0x20C0000000000000000000000000000000000000"
 # USDC.e — separate gas fee token so deployer can pay gas from its USDC.e
 # balance while factory.createFee still pulls pathUSD.
 GAS_FEE_TOKEN = "0x20C000000000000000000000b9537d11c60E8b50"
+
+# DEPLOYER_ADDRESS = Claude's own wallet. A standalone EOA whose private key
+# the worker holds (DEPLOYER_KEY secret) to sign every agent action without
+# any human in the loop. Standard viem can't sign as the user's main wallet
+# via an access key — that path needs a Tempo-native KeyAuthorization signed
+# by passkey, which the worker has no access to.
 DEPLOYER_ADDRESS = "0xe7013E5686b4C50B9D8e7FdB76F74baA08909494"
+# USER_WALLET = the human's main Tempo wallet. Sweep actions periodically
+# transfer the agent's accumulated earnings (creator fees, buy gains) here so
+# the human's onchain history grows with Claude's activity.
+USER_WALLET = "0xa8aB0DE5937BD22Da15F7FeE25F1340D7c83C935"
 RPC_URL = "https://rpc.tempo.xyz"
 PRICE_PATHUSD = "0.10"
 # /launch-and-bootstrap charges more — server does createToken + approve + buy

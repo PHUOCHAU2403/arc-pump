@@ -81,6 +81,8 @@ interface Env {
   PRICE_LIFECYCLE_PATHUSD?: string;
   /** KV namespace storing the autonomous agent's action history. */
   AGENT_LOG: KVNamespace;
+  /** User's main wallet — sweep action sends agent earnings here. */
+  USER_WALLET: string;
 }
 
 interface LaunchRequest {
@@ -204,8 +206,15 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   // Manual trigger for testing — fire one tick on demand. Useful for local dev
   // and bootstrapping the dashboard with one entry before cron has fired.
-  if (request.method === "POST" && url.pathname === "/agent/tick") {
-    const auth = request.headers.get("x-admin-token") ?? "";
+  // Accepts admin token via header OR ?token= query param so it's trivially
+  // hittable from a browser (paste-and-fire) during demos.
+  if (
+    (request.method === "POST" || request.method === "GET") &&
+    url.pathname === "/agent/tick"
+  ) {
+    const headerAuth = request.headers.get("x-admin-token") ?? "";
+    const queryAuth = url.searchParams.get("token") ?? "";
+    const auth = headerAuth || queryAuth;
     if (auth !== env.MPP_SECRET_KEY) {
       return new Response("Forbidden", { status: 403 });
     }
@@ -596,6 +605,9 @@ async function runAgentTick(env: Env): Promise<AgentAction> {
       case "claim":
         action = await runAgentClaim(env, client, account, id, timestamp);
         break;
+      case "sweep":
+        action = await runAgentSweep(env, client, account, id, timestamp);
+        break;
       case "heartbeat":
       default:
         action = await runAgentHeartbeat(env, client, account, id, timestamp);
@@ -617,11 +629,18 @@ async function runAgentTick(env: Env): Promise<AgentAction> {
 }
 
 function pickAgentAction(): AgentActionType {
+  // Action mix tuned for narrative density:
+  //   launch    35% — fresh memecoin, photogenic for the activity feed
+  //   buy       25% — keeps existing curves moving
+  //   claim     20% — proves the agent earns from its own creations
+  //   sweep     10% — periodically routes earnings to the user's main wallet
+  //   heartbeat 10% — "still alive" tx when nothing else makes sense
   const roll = Math.random();
-  if (roll < 0.4) return "launch"; // 40%
-  if (roll < 0.7) return "buy"; // 30%
-  if (roll < 0.9) return "claim"; // 20%
-  return "heartbeat"; // 10%
+  if (roll < 0.35) return "launch";
+  if (roll < 0.6) return "buy";
+  if (roll < 0.8) return "claim";
+  if (roll < 0.9) return "sweep";
+  return "heartbeat";
 }
 
 // -------------------- action: launch --------------------
@@ -908,6 +927,128 @@ async function runAgentClaim(
   };
 }
 
+// -------------------- action: sweep --------------------
+
+/**
+ * Sweep accumulated earnings (pathUSD + USDC.e) from the agent's wallet to
+ * the user's main wallet. Keeps a buffer in the agent wallet so it can keep
+ * paying gas + future createFees.
+ *
+ * Buffer policy:
+ *   - Keep at least 0.50 USDC.e in agent (for ~2-3 more action ticks of gas)
+ *   - Keep at least 0.10 pathUSD in agent (for ~10 createFees at 0.01 each)
+ *   - Sweep everything above that to USER_WALLET
+ *
+ * If neither balance has surplus, returns a "skipped" action so the tick
+ * doesn't look like an error.
+ */
+async function runAgentSweep(
+  env: Env,
+  client: AgentClient,
+  account: ReturnType<typeof privateKeyToAccount>,
+  id: string,
+  timestamp: number
+): Promise<AgentAction> {
+  const pathUSD = env.PATHUSD_ADDRESS as Address;
+  const usdcE = env.GAS_FEE_TOKEN as Address;
+  const userWallet = env.USER_WALLET as Address;
+
+  const RESERVE_USDC_E = 500_000n; // 0.50 USDC.e
+  const RESERVE_PATHUSD = 100_000n; // 0.10 pathUSD
+
+  const [pathUSDBal, usdcEBal] = await Promise.all([
+    client.readContract({
+      address: pathUSD,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
+    }) as Promise<bigint>,
+    client.readContract({
+      address: usdcE,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
+    }) as Promise<bigint>,
+  ]);
+
+  const pathUSDSurplus =
+    pathUSDBal > RESERVE_PATHUSD ? pathUSDBal - RESERVE_PATHUSD : 0n;
+  const usdcESurplus =
+    usdcEBal > RESERVE_USDC_E ? usdcEBal - RESERVE_USDC_E : 0n;
+
+  // Cap individual sweeps so a single bug can't drain the agent.
+  const cap = 1_000_000n; // 1.00 unit per token per sweep
+  const sweepPathUSD = pathUSDSurplus > cap ? cap : pathUSDSurplus;
+  const sweepUsdcE = usdcESurplus > cap ? cap : usdcESurplus;
+
+  if (sweepPathUSD === 0n && sweepUsdcE === 0n) {
+    return {
+      id,
+      timestamp,
+      type: "sweep",
+      status: "skipped",
+      summary: "Nothing to sweep — both balances below reserve thresholds",
+    };
+  }
+
+  // Build the calls array. Tempo lets us batch transfers in one tx.
+  const calls: Array<{ to: Address; data: Hex }> = [];
+  if (sweepPathUSD > 0n) {
+    calls.push({
+      to: pathUSD,
+      data: encodeFunctionData({
+        abi: parseAbi([
+          "function transfer(address to, uint256 amount) returns (bool)",
+        ]),
+        functionName: "transfer",
+        args: [userWallet, sweepPathUSD],
+      }),
+    });
+  }
+  if (sweepUsdcE > 0n) {
+    calls.push({
+      to: usdcE,
+      data: encodeFunctionData({
+        abi: parseAbi([
+          "function transfer(address to, uint256 amount) returns (bool)",
+        ]),
+        functionName: "transfer",
+        args: [userWallet, sweepUsdcE],
+      }),
+    });
+  }
+
+  const receipt = await client.sendTransactionSync({
+    calls,
+    feeToken: env.GAS_FEE_TOKEN as Address,
+  });
+
+  const summaryParts: string[] = [];
+  if (sweepPathUSD > 0n) {
+    summaryParts.push(`${(Number(sweepPathUSD) / 1_000_000).toFixed(4)} pathUSD`);
+  }
+  if (sweepUsdcE > 0n) {
+    summaryParts.push(`${(Number(sweepUsdcE) / 1_000_000).toFixed(4)} USDC.e`);
+  }
+
+  return {
+    id,
+    timestamp,
+    type: "sweep",
+    status: receipt.status === "success" ? "success" : "error",
+    summary: `Swept ${summaryParts.join(" + ")} to user wallet`,
+    txHash: receipt.transactionHash,
+    sweptPathUSD:
+      sweepPathUSD > 0n
+        ? (Number(sweepPathUSD) / 1_000_000).toFixed(6)
+        : undefined,
+    sweptUsdcE:
+      sweepUsdcE > 0n
+        ? (Number(sweepUsdcE) / 1_000_000).toFixed(6)
+        : undefined,
+  };
+}
+
 // -------------------- action: heartbeat --------------------
 
 async function runAgentHeartbeat(
@@ -957,10 +1098,13 @@ async function logAgentAction(env: Env, action: AgentAction): Promise<void> {
         buys: 0,
         claims: 0,
         heartbeats: 0,
+        sweeps: 0,
         errors: 0,
         startedAt: action.timestamp,
         lastActionAt: action.timestamp,
       };
+  // Migrate older stats records that pre-date the `sweeps` counter.
+  if (typeof current.sweeps !== "number") current.sweeps = 0;
   current.total += 1;
   current.lastActionAt = action.timestamp;
   if (action.status === "error") current.errors += 1;
@@ -976,6 +1120,9 @@ async function logAgentAction(env: Env, action: AgentAction): Promise<void> {
       break;
     case "heartbeat":
       current.heartbeats += 1;
+      break;
+    case "sweep":
+      current.sweeps += 1;
       break;
   }
   await env.AGENT_LOG.put("stats:summary", JSON.stringify(current));
@@ -997,18 +1144,19 @@ async function loadAgentStats(env: Env): Promise<AgentStats & {
   cronSchedule: string;
 }> {
   const raw = await env.AGENT_LOG.get("stats:summary");
-  const base: AgentStats = raw
-    ? JSON.parse(raw)
-    : {
-        total: 0,
-        launches: 0,
-        buys: 0,
-        claims: 0,
-        heartbeats: 0,
-        errors: 0,
-        startedAt: 0,
-        lastActionAt: 0,
-      };
+  const parsed = raw ? JSON.parse(raw) : null;
+  const base: AgentStats = {
+    total: 0,
+    launches: 0,
+    buys: 0,
+    claims: 0,
+    heartbeats: 0,
+    sweeps: 0,
+    errors: 0,
+    startedAt: 0,
+    lastActionAt: 0,
+    ...(parsed ?? {}),
+  };
   return {
     ...base,
     walletAddress: env.DEPLOYER_ADDRESS,
@@ -1018,7 +1166,7 @@ async function loadAgentStats(env: Env): Promise<AgentStats & {
 
 // -------------------- types --------------------
 
-type AgentActionType = "launch" | "buy" | "claim" | "heartbeat";
+type AgentActionType = "launch" | "buy" | "claim" | "heartbeat" | "sweep";
 
 interface AgentAction {
   id: string;
@@ -1034,6 +1182,8 @@ interface AgentAction {
   amountTokens?: number;
   costPathUSD?: string;
   claimedPathUSD?: string;
+  sweptPathUSD?: string;
+  sweptUsdcE?: string;
   error?: string;
 }
 
@@ -1043,6 +1193,7 @@ interface AgentStats {
   buys: number;
   claims: number;
   heartbeats: number;
+  sweeps: number;
   errors: number;
   startedAt: number;
   lastActionAt: number;

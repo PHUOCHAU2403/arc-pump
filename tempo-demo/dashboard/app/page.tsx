@@ -6,7 +6,12 @@ const WORKER_BASE =
   process.env.NEXT_PUBLIC_WORKER_URL ??
   "https://tempo-pump-mpp.arcpump2403.workers.dev";
 
-type AgentActionType = "launch" | "buy" | "claim" | "heartbeat";
+type AgentActionType =
+  | "launch"
+  | "buy"
+  | "claim"
+  | "heartbeat"
+  | "sweep";
 
 interface AgentAction {
   id: string;
@@ -22,6 +27,8 @@ interface AgentAction {
   amountTokens?: number;
   costPathUSD?: string;
   claimedPathUSD?: string;
+  sweptPathUSD?: string;
+  sweptUsdcE?: string;
   error?: string;
 }
 
@@ -31,6 +38,7 @@ interface AgentStats {
   buys: number;
   claims: number;
   heartbeats: number;
+  sweeps: number;
   errors: number;
   startedAt: number;
   lastActionAt: number;
@@ -42,6 +50,7 @@ const TYPE_LABELS: Record<AgentActionType, string> = {
   launch: "Launch",
   buy: "Buy",
   claim: "Claim",
+  sweep: "Sweep",
   heartbeat: "Heartbeat",
 };
 
@@ -49,6 +58,7 @@ const TYPE_COLORS: Record<AgentActionType, string> = {
   launch: "var(--accent)",
   buy: "var(--good)",
   claim: "#a16207",
+  sweep: "#7e22ce",
   heartbeat: "var(--ink-mute)",
 };
 
@@ -208,13 +218,14 @@ export default function Page() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
+              gridTemplateColumns: "repeat(5, 1fr)",
               gap: 16,
             }}
           >
             <TypeChip label="Launches" count={stats.launches} color="var(--accent)" />
             <TypeChip label="Buys" count={stats.buys} color="var(--good)" />
             <TypeChip label="Claims" count={stats.claims} color="#a16207" />
+            <TypeChip label="Sweeps" count={stats.sweeps ?? 0} color="#7e22ce" />
             <TypeChip label="Heartbeats" count={stats.heartbeats} color="var(--ink-mute)" />
           </div>
         </section>
@@ -509,6 +520,8 @@ function ActionRow({
       >
         {action.costPathUSD ? `${action.costPathUSD} pUSD` : null}
         {action.claimedPathUSD ? `+${action.claimedPathUSD} pUSD` : null}
+        {action.sweptPathUSD ? `→ ${action.sweptPathUSD} pUSD` : null}
+        {action.sweptUsdcE ? `→ ${action.sweptUsdcE} USDC.e` : null}
       </div>
     </div>
   );
