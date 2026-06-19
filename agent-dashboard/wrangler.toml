@@ -1,0 +1,9 @@
+name = "arc-pump-agent"
+main = "src/worker.js"
+compatibility_date = "2026-05-01"
+
+# Secret: wrangler secret put INGEST_TOKEN
+# KV id filled in after `wrangler kv namespace create AGENT_LOG`
+[[kv_namespaces]]
+binding = "AGENT_LOG"
+id = "8b5d970e95824d6bb703976745c62027"
