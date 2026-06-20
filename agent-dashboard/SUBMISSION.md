@@ -1,7 +1,6 @@
 # Ignyte Submission — field sheet
 
-Copy each field into the Ignyte submission form. Everything below is ready except
-the video URL (record first, then paste).
+Copy each field into the Ignyte submission form. Everything below is ready.
 
 ---
 
@@ -33,7 +32,7 @@ sieusayza@gmail.com
 - Architecture diagram: `agent-dashboard/architecture.svg` (in repo) — attach/upload this image to the form
 
 **Video demonstration + presentation**
-<PASTE VIDEO URL HERE after recording — see VIDEO_SCRIPT.md>
+https://youtu.be/mK7tNaC4z14  (YouTube, unlisted)
 
 **Link to GitHub / code repository**
 https://github.com/PHUOCHAU2403/arc-pump
@@ -51,9 +50,9 @@ section's contents into the form's "Circle Product Feedback" field.
 ---
 
 ## Pre-submit checklist
-- [ ] `git push` the repo so README + agent/ + agent-dashboard/ + architecture.svg + feedback are public
-- [ ] Confirm secrets are NOT committed (agent/.env, recovery*.dat are gitignored)
-- [ ] Record the video, upload (YouTube/Loom unlisted), paste URL above + in the form
+- [x] `git push` the repo so README + agent/ + agent-dashboard/ + architecture.svg + feedback are public
+- [x] Confirm secrets are NOT committed (agent/.env, recovery*.dat are gitignored)
+- [x] Record the video, upload (YouTube unlisted), paste URL above + in the form — https://youtu.be/mK7tNaC4z14
 - [ ] Upload architecture.svg (or a PNG export) to the diagram field
-- [ ] Confirm the live dashboard loads + shows recent agent activity
+- [ ] Confirm the live dashboard loads + shows recent agent activity (https://agent.arcpump.com)
 - [ ] Submit before 2026-07-13
