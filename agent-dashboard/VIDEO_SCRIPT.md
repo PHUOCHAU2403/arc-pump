@@ -4,7 +4,7 @@ Screen recording + voiceover. Keep it tight; judges watch many. Record at 1080p,
 unlisted YouTube/Loom, paste the URL into SUBMISSION.md and the form.
 
 Have these tabs open before recording:
-1. The live dashboard — https://arc-pump-agent.arcpump2403.workers.dev
+1. The live dashboard — https://agent.arcpump.com
 2. Arcscan — the agent wallet page (`/address/0x9f26df…`)
 3. A terminal connected to the agent (or local `agent/`)
 4. `agent-dashboard/architecture.svg` open in a viewer

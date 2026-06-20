@@ -9,7 +9,7 @@ No human in the loop.
 > Submission for **The Stablecoin Commerce Stack Challenge** (Ignyte × Circle × Arc)
 > — Track 4: **Best Agentic Economy Experience on Arc**.
 
-- 🔴 **Live dashboard:** https://arc-pump-agent.arcpump2403.workers.dev
+- 🔴 **Live dashboard:** https://agent.arcpump.com
 - 🤖 **Agent wallet (Arc testnet):** [`0x9f26df…72b6a`](https://testnet.arcscan.app/address/0x9f26dfba277afdd6e5df307f7d9363abe2f72b6a) — Circle MPC wallet
 - 🏭 **MemeFactory contract:** [`0x4dCf32…0546c`](https://testnet.arcscan.app/address/0x4dCf3238dd90E571e82bC07fD876B384f170546c) (Arc testnet, chain 5042002)
 

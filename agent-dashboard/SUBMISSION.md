@@ -27,7 +27,7 @@ sieusayza@gmail.com
 - ✅ Nanopayments — referenced as the next step for high-frequency agentic settlement (conceptual / architecture-level)
 
 **Functional MVP and diagram**
-- Live demo (working frontend + backend): https://arc-pump-agent.arcpump2403.workers.dev
+- Live demo (working frontend + backend): https://agent.arcpump.com
 - Agent wallet on Arc testnet: https://testnet.arcscan.app/address/0x9f26dfba277afdd6e5df307f7d9363abe2f72b6a
 - MemeFactory contract: https://testnet.arcscan.app/address/0x4dCf3238dd90E571e82bC07fD876B384f170546c
 - Architecture diagram: `agent-dashboard/architecture.svg` (in repo) — attach/upload this image to the form
@@ -40,7 +40,7 @@ https://github.com/PHUOCHAU2403/arc-pump
 (setup + Circle-integration docs are in the root README.md)
 
 **Demo Application Platform / Application URL**
-https://arc-pump-agent.arcpump2403.workers.dev
+https://agent.arcpump.com
 
 **Circle Product Feedback**
 See `agent-dashboard/CIRCLE_PRODUCT_FEEDBACK.md` — covers why we chose USDC + Circle
