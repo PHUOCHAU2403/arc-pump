@@ -232,11 +232,13 @@ export default async function AgentPage() {
       )}
 
       <div className="border-line text-ink-faint mt-16 border-t pt-5 text-[12px] leading-[1.7]">
-        <b className="text-ink-mute font-medium">Arc Pump Agent</b> — Ignyte ×
-        Circle Stablecoin Commerce Stack Challenge, Agentic Economy track.
+        <a className="link-quiet font-mono text-ink-mute" href="/agent/transparency">
+          Transparency &amp; guardrails →
+        </a>
         <br />
-        Reasoning by Claude (Opus 4.8) · signing via Circle Programmable Wallets
-        · contracts + USDC settlement on Arc.
+        <span className="text-ink-mute">Arc Pump</span> — agentic market
+        infrastructure on Arc. Reasoning by Claude (Opus 4.8) · signing via Circle
+        Programmable Wallets · contracts + USDC settlement on Arc.
       </div>
     </main>
   );
