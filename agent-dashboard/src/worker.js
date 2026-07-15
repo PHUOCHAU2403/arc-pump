@@ -25,6 +25,9 @@ async function ingest(req, env) {
   const rec = {
     id, ts,
     type: a.type || "tick",
+    agent: a.agent || "",
+    agentLabel: a.agentLabel || "",
+    agentEmoji: a.agentEmoji || "",
     state: a.state || "",
     summary: a.summary || "",
     reasoning: a.reasoning || "",

@@ -1,9 +1,13 @@
-// Arc Pump Agent — autonomous agent operating a USDC-native launchpad on Arc.
-// Signs via Circle Programmable Wallets (dev-controlled, MPC) on ARC-TESTNET.
-// Actions: launch (createToken) · buy (bonding curve) · claim (creator fees).
+// Arc Pump — a fleet of autonomous AI agents running a USDC-native market
+// economy on Arc. A coordinator routes each cycle to the agent whose turn it is:
+//   🚀 Launcher     — opens new USDC-native markets (createToken)
+//   📈 Market Maker — seeds liquidity into existing markets (bonding-curve buy)
+//   🏦 Treasury     — harvests creator fees to keep the economy self-funding (claim)
+// Every action is reasoned by Claude, signed via a Circle Programmable Wallet
+// (dev-controlled, MPC) on ARC-TESTNET, and settled in USDC on Arc. No human loop.
 // Reads via viem public client; writes via Circle createContractExecutionTransaction.
 //
-// Run: node agent.mjs <read|launch|buy|claim|tick>
+// Run: node agent.mjs <read|reason|launch|buy|claim|tick|demo>
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { createPublicClient, http, parseAbi, formatUnits } from "viem";
 import Anthropic from "@anthropic-ai/sdk";
@@ -48,6 +52,8 @@ const CURVE_ABI = parseAbi([
   "function getBuyCost(uint256 amount) view returns (uint256)",
   "function feeFor(uint256 amount,bool isBuy) view returns (uint256)",
   "function claimCreatorFees(address to)",
+  "function creatorFeesAccrued() view returns (uint256)",
+  "function creator() view returns (address)",
 ]);
 
 // ---------- token concept palette (reasoning fallback) ----------
@@ -57,6 +63,15 @@ const IDEAS = [
   ["Real Time Final", "RTF"], ["Nano Tick", "NANO"], ["Gateway Bot", "GWB"],
   ["Treasury Loop", "TLOOP"], ["Compliant Coin", "CMPL"], ["Remit Rail", "RAIL"],
 ];
+
+// ---------- the fleet ----------
+// Three role-agents share the treasury wallet today; each owns one economic
+// function. A coordinator (reason()) routes each cycle to one of them.
+const FLEET = {
+  launcher:    { tag: "launcher",    label: "Launcher",     emoji: "🚀", action: "launch" },
+  marketmaker: { tag: "marketmaker", label: "Market Maker", emoji: "📈", action: "buy" },
+  treasury:    { tag: "treasury",    label: "Treasury",     emoji: "🏦", action: "claim" },
+};
 
 // ---------- helpers ----------
 const j = (v) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
@@ -150,41 +165,78 @@ async function actionBuy() {
 }
 
 async function actionClaim() {
-  const c = await pickCurve();
-  if (!c) return { type: "claim", state: "SKIPPED", reason: "no curves yet" };
-  const r = await exec({ contract: c.curve, sig: "claimCreatorFees(address)", params: [AGENT] });
-  return { type: "claim", curve: c.curve, ...r };
+  const total = await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "totalTokens" });
+  if (Number(total) === 0) return { type: "claim", state: "SKIPPED", reason: "no curves yet" };
+  const limit = Math.min(Number(total), 50);
+  const offset = BigInt(Math.max(0, Number(total) - limit));
+  const batch = await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "tokensBatch", args: [offset, BigInt(limit)] });
+  // Only claim where the agent is the creator AND fees have actually accrued —
+  // claiming zero fees reverts (ESTIMATION_ERROR).
+  for (const c of [...batch].reverse()) {
+    let fees, creator;
+    try {
+      fees = await arc.readContract({ address: c.curve, abi: CURVE_ABI, functionName: "creatorFeesAccrued" });
+      creator = await arc.readContract({ address: c.curve, abi: CURVE_ABI, functionName: "creator" });
+    } catch { continue; }
+    if (creator.toLowerCase() === AGENT.toLowerCase() && fees > 0n) {
+      const r = await exec({ contract: c.curve, sig: "claimCreatorFees(address)", params: [AGENT] });
+      return { type: "claim", token: c.symbol, curve: c.curve, claimed: formatUnits(fees, 18) + " USDC", ...r };
+    }
+  }
+  return { type: "claim", state: "SKIPPED", reason: "no creator fees accrued yet" };
 }
 
-// AI reasoning: Claude decides the next action and explains why. The `reasoning`
-// string is surfaced on the dashboard — this is what makes it an agent that
-// *thinks*, not a cron with a dice roll.
-async function reason() {
-  const total = await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "totalTokens" });
-  let recent = "none yet";
-  if (Number(total) > 0) {
-    const lim = Math.min(Number(total), 5);
-    const batch = await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "tokensBatch", args: [BigInt(Math.max(0, Number(total) - lim)), BigInt(lim)] });
-    recent = batch.map((t) => `${t.name} ($${t.symbol})`).join(", ");
+// Snapshot the economy so the coordinator can route work to the right agent:
+// how many markets exist, which are recent, treasury balance, claimable fees,
+// and how many markets are buyable. Claimable/buyable are the A2A signals that
+// tell the Treasury and Market Maker when it's their turn.
+async function fleetSnapshot() {
+  const total = Number(await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "totalTokens" }));
+  let recent = "none yet", claimable = 0n, buyable = 0;
+  if (total > 0) {
+    const lim = Math.min(total, 15);
+    const batch = await arc.readContract({ address: FACTORY, abi: FACTORY_ABI, functionName: "tokensBatch", args: [BigInt(Math.max(0, total - lim)), BigInt(lim)] });
+    recent = batch.slice(-5).map((t) => `${t.name} ($${t.symbol})`).join(", ");
+    for (const c of batch) {
+      try {
+        const fees = await arc.readContract({ address: c.curve, abi: CURVE_ABI, functionName: "creatorFeesAccrued" });
+        const creator = await arc.readContract({ address: c.curve, abi: CURVE_ABI, functionName: "creator" });
+        if (creator.toLowerCase() === AGENT.toLowerCase()) claimable += fees;
+        buyable++;
+      } catch {}
+    }
   }
   let bal = "unknown";
   try { bal = formatUnits(await arc.getBalance({ address: AGENT }), 18) + " USDC"; } catch {}
+  return { total, recent, balance: bal, claimableUSDC: formatUnits(claimable, 18), buyableMarkets: buyable };
+}
 
+// The coordinator: Claude routes each cycle to ONE of the three fleet agents and
+// explains the decision in that agent's voice. This is what turns a cron into a
+// coordinated multi-agent economy — the reasoning is surfaced on the dashboard.
+async function reason() {
+  const s = await fleetSnapshot();
   const res = await anthropic.messages.create({
     model: "claude-opus-4-8",
     max_tokens: 6000,
     thinking: { type: "adaptive" },
     system:
-      "You are an autonomous AI agent operating Arc Pump — a USDC-native memecoin launchpad on Circle's Arc blockchain. Each cycle you pick ONE action and settle it in USDC on Arc with no human in the loop: 'launch' a new token, 'buy' from an existing bonding curve, or 'claim' accrued creator fees. Keep the launchpad lively and your decisions varied and sensible.",
+      "You are the coordinator of Arc Pump — a fleet of three autonomous AI agents running a USDC-native market economy on Circle's Arc blockchain. The fleet:\n" +
+      "- launcher (🚀 Launcher): opens new USDC-native token markets (bonding curves).\n" +
+      "- marketmaker (📈 Market Maker): provides liquidity by buying into existing markets to build momentum.\n" +
+      "- treasury (🏦 Treasury): claims accrued creator fees to keep the economy self-funding.\n" +
+      "Each cycle, route to exactly ONE agent based on the economy's state, and explain the decision in that agent's voice (first person). The agents coordinate as an economy: the Launcher seeds new markets, the Market Maker supports them with liquidity, the Treasury harvests fees. Keep it balanced — vary across cycles, don't only launch. Route to treasury only when there are claimable fees; route to marketmaker only when buyable markets exist. Every action settles in USDC on Arc with no human in the loop.",
     messages: [{
       role: "user",
-      content: `Current state of your launchpad on Arc:
-- Tokens launched so far: ${Number(total)}
-- Recent tokens: ${recent}
-- Your wallet balance: ${bal}
-- Launch fee: 1 USDC per token
+      content: `Economy state on Arc:
+- Markets open: ${s.total}
+- Recent markets: ${s.recent}
+- Treasury (wallet) balance: ${s.balance}
+- Claimable creator fees: ${s.claimableUSDC} USDC
+- Buyable markets: ${s.buyableMarkets}
+- Launch fee: 1 USDC per new market
 
-Decide your next action. Aim for variety across cycles — grow the catalog with fresh launches regularly, not just buys; periodically claim fees too. If you 'launch', invent a fresh, fun token name + short ticker fitting the onchain / agentic / stablecoin-commerce theme (avoid repeating the recent ones). Explain your reasoning in 1-2 sentences.`,
+Decide which agent acts next and why. If routing to the Launcher, invent a fresh market name + short ticker fitting the onchain / agentic / stablecoin-commerce theme (avoid repeating the recent ones). Explain in 1-2 sentences, in the acting agent's voice.`,
     }],
     output_config: {
       format: {
@@ -192,12 +244,12 @@ Decide your next action. Aim for variety across cycles — grow the catalog with
         schema: {
           type: "object",
           properties: {
-            action: { type: "string", enum: ["launch", "buy", "claim"] },
+            agent: { type: "string", enum: ["launcher", "marketmaker", "treasury"] },
             reasoning: { type: "string" },
             tokenName: { type: "string" },
             tokenSymbol: { type: "string" },
           },
-          required: ["action", "reasoning", "tokenName", "tokenSymbol"],
+          required: ["agent", "reasoning", "tokenName", "tokenSymbol"],
           additionalProperties: false,
         },
       },
@@ -209,11 +261,46 @@ Decide your next action. Aim for variety across cycles — grow the catalog with
 
 async function tick() {
   const d = await reason();
+  const meta = FLEET[d.agent] || FLEET.launcher;
   let result;
-  if (d.action === "launch") result = await actionLaunch(d.tokenName, d.tokenSymbol);
-  else if (d.action === "buy") result = await actionBuy();
-  else result = await actionClaim();
-  return { ...result, reasoning: d.reasoning };
+  if (d.agent === "marketmaker") result = await actionBuy();
+  else if (d.agent === "treasury") result = await actionClaim();
+  else result = await actionLaunch(d.tokenName, d.tokenSymbol);
+  return { ...result, agent: meta.tag, agentLabel: meta.label, agentEmoji: meta.emoji, reasoning: d.reasoning };
+}
+
+// ---------- pretty output (for the demo video) ----------
+function wrapText(s, width, indent) {
+  const words = String(s).split(/\s+/);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > width) { lines.push(cur); cur = w; }
+    else cur = cur ? cur + " " + w : w;
+  }
+  if (cur) lines.push(cur);
+  return lines.map((l) => indent + l);
+}
+
+function pretty(r) {
+  const bar = "  " + "─".repeat(60);
+  const who = r.agentEmoji && r.agentLabel ? `${r.agentEmoji}  ${r.agentLabel}` : "🤖  Arc Pump";
+  const out = ["", `  ${who} — Arc Pump fleet · Arc`, bar];
+  if (r.reasoning) {
+    out.push("  Reasoning:");
+    out.push(...wrapText(r.reasoning, 60, "    "));
+    out.push("");
+  }
+  const T = (r.type || "").toUpperCase();
+  if (r.type === "launch") out.push(`  ✅ ${T}   ${r.name} ($${r.symbol})`);
+  else if (r.type === "buy") out.push(`  ✅ ${T}   into $${r.token}${r.cost ? `   ·  ${r.cost}` : ""}`);
+  else if (r.type === "claim") out.push(`  ${r.state === "SKIPPED" ? "↪" : "✅"} ${T}   ${r.state === "SKIPPED" ? (r.reason || "skipped") : "creator fees claimed"}`);
+  if (r.txHash) {
+    out.push(`     tx  ${r.txHash.slice(0, 10)}…${r.txHash.slice(-6)}   ·  settled in USDC on Arc`);
+    out.push(`     https://testnet.arcscan.app/tx/${r.txHash}`);
+  }
+  out.push(bar, "");
+  return out.join("\n");
 }
 
 // ---------- main ----------
@@ -221,7 +308,11 @@ const cmd = process.argv[2] || "read";
 try {
   if (cmd === "read") console.log("state:", j(await readState()));
   else if (cmd === "reason") console.log("decision:", j(await reason()));
-  else if (["launch", "buy", "claim", "tick"].includes(cmd)) {
+  else if (cmd === "demo") {
+    const result = await tick();
+    console.log(pretty(result));   // clean, human-readable output for the demo video
+    await ingest(result);
+  } else if (["launch", "buy", "claim", "tick"].includes(cmd)) {
     const result =
       cmd === "launch" ? await actionLaunch() :
       cmd === "buy" ? await actionBuy() :
@@ -229,7 +320,7 @@ try {
       await tick();
     console.log("result:", j(result));
     await ingest(result);
-  } else console.log("usage: node agent.mjs <read|reason|launch|buy|claim|tick>");
+  } else console.log("usage: node agent.mjs <read|reason|launch|buy|claim|tick|demo>");
 } catch (e) {
   console.error("ERR:", e.message);
   process.exit(1);

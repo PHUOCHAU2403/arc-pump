@@ -8,9 +8,9 @@ import { AutoRefresh } from "./AutoRefresh";
 export const revalidate = 30;
 
 export const metadata: Metadata = {
-  title: "Arc Pump Agent — autonomous AI on Arc",
+  title: "Arc Pump — agentic market infrastructure on Arc",
   description:
-    "An autonomous AI agent running a USDC-native launchpad on Circle's Arc. It reasons, decides, and settles every transaction in USDC via Circle Programmable Wallets — no human in the loop.",
+    "A fleet of autonomous AI agents running a USDC-native market economy on Circle's Arc. They open markets, seed liquidity, and manage the treasury — reasoning with Claude, signing through Circle Programmable Wallets, settling in USDC. No human in the loop.",
 };
 
 const ARCSCAN = "https://testnet.arcscan.app";
@@ -23,6 +23,9 @@ type Action = {
   id: string;
   ts: number;
   type: string;
+  agent?: string;
+  agentLabel?: string;
+  agentEmoji?: string;
   state: string;
   summary: string;
   reasoning: string;
@@ -41,12 +44,18 @@ type Stats = {
   errors?: number;
 };
 
-const TYPE_COLOR: Record<string, string> = {
-  launch: "#c2410c",
-  buy: "#166534",
-  claim: "#b45309",
-  tick: "#6b6b6b",
+// The fleet. Each agent owns one economic function; actions map 1:1 to a role,
+// so we can attribute even older records (before the `agent` field existed).
+const AGENTS: Record<string, { label: string; emoji: string; color: string; blurb: string }> = {
+  launcher: { label: "Launcher", emoji: "🚀", color: "#c2410c", blurb: "Opens new USDC-native markets" },
+  marketmaker: { label: "Market Maker", emoji: "📈", color: "#166534", blurb: "Seeds liquidity into live markets" },
+  treasury: { label: "Treasury", emoji: "🏦", color: "#b45309", blurb: "Harvests fees to self-fund the economy" },
 };
+const AGENT_BY_TYPE: Record<string, string> = { launch: "launcher", buy: "marketmaker", claim: "treasury" };
+function agentFor(a: Action) {
+  const key = a.agent || AGENT_BY_TYPE[a.type];
+  return AGENTS[key] || { label: a.type, emoji: "🤖", color: "#6b6b6b", blurb: "" };
+}
 
 function ago(ts: number) {
   const d = Math.max(0, Date.now() - ts);
@@ -93,25 +102,25 @@ export default async function AgentPage() {
 
       <div className="type-kicker flex items-center gap-2">
         <span className="dot-live" />
-        Live on Arc Testnet · Circle Stablecoin Commerce Stack
+        Live on Arc · Agentic market infrastructure
       </div>
 
       <h1
         className="font-display mt-3 mb-3 font-medium"
         style={{ fontSize: "clamp(2.2rem,5vw,3.4rem)", lineHeight: 1.02, letterSpacing: "-0.03em" }}
       >
-        An AI agent that runs a launchpad on Arc.
+        A market economy run by autonomous agents.
       </h1>
 
-      <p className="text-ink-soft max-w-[60ch] text-[1.05rem] leading-relaxed">
-        Every few hours it wakes, reasons about its market, and decides what to
-        do — launch a token, buy into a curve, or claim fees. It signs through a
-        Circle Programmable Wallet and settles every transaction in USDC on Arc.
-        No human in the loop.
+      <p className="text-ink-soft max-w-[62ch] text-[1.05rem] leading-relaxed">
+        Arc Pump is agentic market infrastructure on Arc. A fleet of AI agents
+        opens USDC-native markets, seeds their liquidity, and manages the
+        treasury — each one reasoning with Claude, signing through a Circle
+        Programmable Wallet, and settling in USDC on-chain. No human in the loop.
       </p>
 
       <div className="font-mono text-ink-mute mt-4 text-[12.5px]">
-        agent{" "}
+        treasury wallet{" "}
         <a
           className="link-quiet"
           href={`${ARCSCAN}/address/${AGENT_ADDR}`}
@@ -120,7 +129,7 @@ export default async function AgentPage() {
         >
           {AGENT_ADDR.slice(0, 10)}…{AGENT_ADDR.slice(-6)}
         </a>{" "}
-        · signs via Circle Wallets · settles in USDC
+        · the fleet signs via Circle Wallets · settles in USDC
       </div>
 
       <div className="bg-line border-line mt-10 mb-3 grid grid-cols-5 gap-px border">
@@ -136,9 +145,34 @@ export default async function AgentPage() {
         ))}
       </div>
 
-      <div className="type-kicker mt-11 mb-1.5">Tape</div>
+      <div className="type-kicker mt-12 mb-3">The fleet</div>
+      <div className="bg-line border-line grid gap-px border sm:grid-cols-3">
+        {(["launcher", "marketmaker", "treasury"] as const).map((key) => {
+          const ag = AGENTS[key];
+          const count =
+            key === "launcher" ? stats.launch : key === "marketmaker" ? stats.buy : stats.claim;
+          return (
+            <div key={key} className="bg-paper p-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[1.15rem]">{ag.emoji}</span>
+                <span className="font-medium">{ag.label}</span>
+              </div>
+              <div className="text-ink-mute mt-1.5 text-[13px] leading-snug">{ag.blurb}</div>
+              <div
+                className="type-mono-stat mt-3 text-[1.15rem] font-medium"
+                style={{ color: ag.color }}
+              >
+                {count || 0}
+                <span className="text-ink-faint text-[11px] font-normal"> actions</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="type-kicker mt-12 mb-1.5">Tape</div>
       <h2 className="font-display mb-4 text-[1.6rem] font-medium tracking-[-0.02em]">
-        What it has decided
+        What the fleet has decided
       </h2>
 
       {actions.length === 0 ? (
@@ -147,19 +181,21 @@ export default async function AgentPage() {
         </div>
       ) : (
         actions.map((a, i) => {
-          const color = TYPE_COLOR[a.type] || "#6b6b6b";
+          const ag = agentFor(a);
+          const color = ag.color;
           return (
             <div
               key={a.id || i}
-              className="border-line motion-fade-up grid grid-cols-[120px_1fr] gap-[18px] border-t py-[18px]"
+              className="border-line motion-fade-up grid grid-cols-[132px_1fr] gap-[18px] border-t py-[18px]"
               style={{ "--motion-delay": `${Math.min(i, 8) * 30}ms` } as CSSProperties}
             >
               <div className="flex flex-col gap-[7px]">
                 <span
-                  className="w-fit rounded border px-2 py-[3px] text-[10.5px] font-medium uppercase tracking-[0.08em]"
+                  className="flex w-fit items-center gap-1 rounded border px-2 py-[3px] text-[11px] font-medium tracking-[0.01em]"
                   style={{ color, borderColor: `${color}33`, background: `${color}11` }}
                 >
-                  {a.type}
+                  <span>{ag.emoji}</span>
+                  {ag.label}
                 </span>
                 <span className="font-mono text-ink-faint text-[12px]">
                   {ago(a.ts)}
