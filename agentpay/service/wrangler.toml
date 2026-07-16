@@ -1,0 +1,8 @@
+name = "agentpay-service"
+main = "src/worker.js"
+compatibility_date = "2026-05-01"
+
+# Invoice state (issued / paid / served). Filled by `wrangler kv namespace create INVOICES`.
+[[kv_namespaces]]
+binding = "INVOICES"
+id = "9e8a970cb073453b9c4f3d42a932ad6c"
