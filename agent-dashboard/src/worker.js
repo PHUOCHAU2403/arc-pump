@@ -5,15 +5,92 @@
 
 const ARCSCAN = "https://testnet.arcscan.app";
 const AGENT_ADDR = "0x9f26dfba277afdd6e5df307f7d9363abe2f72b6a";
+const FACTORY = "0x4dCf3238dd90E571e82bC07fD876B384f170546c"; // MemeFactoryV2 (Arc testnet)
+const RPC = "https://rpc.testnet.arc.network";
 
+// Open API. Arc Pump is permissionless infrastructure: anyone can call the
+// factory to create a market, then publish their move to the shared feed. The
+// only gate is on-chain truth — /api/publish verifies the tx really called the
+// factory before it appears. No API key; spam is priced out by the launch fee.
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
     if (url.pathname === "/ingest" && req.method === "POST") return ingest(req, env);
-    if (url.pathname === "/data") return serveData(env);
+    if (url.pathname === "/data" || url.pathname === "/api/economy") return serveData(env);
+    if (url.pathname === "/api/agents") return serveAgents(env);
+    if (url.pathname === "/api/publish" && req.method === "POST") return publishExternal(req, env);
     return serveDashboard(env);
   },
 };
+
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
+function cors(resp) {
+  for (const [k, v] of Object.entries(CORS)) resp.headers.set(k, v);
+  return resp;
+}
+
+// The fleet roster + live counts, for anyone indexing the economy.
+async function serveAgents(env) {
+  const sraw = await env.AGENT_LOG.get("stats");
+  const s = sraw ? JSON.parse(sraw) : {};
+  const agents = [
+    { id: "launcher", label: "Launcher", role: "Opens new USDC-native markets", action: "createToken", count: s.launch || 0 },
+    { id: "marketmaker", label: "Market Maker", role: "Seeds liquidity into live markets", action: "buy", count: s.buy || 0 },
+    { id: "treasury", label: "Treasury", role: "Harvests fees to self-fund the economy", action: "claimCreatorFees", count: s.claim || 0 },
+  ];
+  return json({ agents, external: s.external || 0, wallet: AGENT_ADDR, factory: FACTORY, chain: "arc-testnet", explorer: ARCSCAN });
+}
+
+// Open, permissionless publish: any external agent that created a market on the
+// Arc Pump factory can add its move (with reasoning) to the shared feed. We
+// verify the tx exists on Arc and actually called the factory — so the feed
+// can't be spammed with fake or unrelated activity, and needs no API key.
+async function publishExternal(req, env) {
+  let a;
+  try { a = await req.json(); } catch { return json({ error: "bad json" }, 400); }
+  const txHash = String(a.txHash || "");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return json({ error: "a valid txHash is required" }, 400);
+  if (await env.AGENT_LOG.get(`ext:${txHash.toLowerCase()}`)) return json({ error: "already published" }, 409);
+
+  let tx;
+  try {
+    const rr = await fetch(RPC, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionByHash", params: [txHash] }),
+    });
+    tx = (await rr.json()).result;
+  } catch { return json({ error: "could not reach Arc RPC" }, 502); }
+  if (!tx) return json({ error: "transaction not found on Arc" }, 422);
+  if ((tx.to || "").toLowerCase() !== FACTORY.toLowerCase())
+    return json({ error: "tx must call the Arc Pump factory (createToken)" }, 422);
+
+  const ts = Date.now();
+  const id = crypto.randomUUID().slice(0, 8);
+  const rec = {
+    id, ts, type: "launch", agent: "external",
+    agentLabel: String(a.agent || "External agent").slice(0, 40),
+    agentEmoji: "🌐", state: "COMPLETE", source: "external",
+    summary: "", reasoning: String(a.reasoning || "").slice(0, 600),
+    name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 10),
+    token: "", txHash, cost: "", balance: "",
+  };
+  const key = `action:${(Number.MAX_SAFE_INTEGER - ts).toString().padStart(16, "0")}:${id}`;
+  await env.AGENT_LOG.put(key, JSON.stringify(rec));
+  await env.AGENT_LOG.put(`ext:${txHash.toLowerCase()}`, "1", { expirationTtl: 60 * 60 * 24 * 90 });
+
+  const sraw = await env.AGENT_LOG.get("stats");
+  const s = sraw ? JSON.parse(sraw) : { total: 0, launch: 0, buy: 0, claim: 0, errors: 0 };
+  s.total++; s.launch = (s.launch || 0) + 1; s.external = (s.external || 0) + 1; s.lastAt = ts;
+  await env.AGENT_LOG.put("stats", JSON.stringify(s));
+
+  return json({ ok: true, id, published: true, explorer: `${ARCSCAN}/tx/${txHash}` });
+}
 
 async function ingest(req, env) {
   const token = new URL(req.url).searchParams.get("token");

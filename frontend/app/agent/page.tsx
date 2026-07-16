@@ -54,7 +54,11 @@ const AGENTS: Record<string, { label: string; emoji: string; color: string; blur
 const AGENT_BY_TYPE: Record<string, string> = { launch: "launcher", buy: "marketmaker", claim: "treasury" };
 function agentFor(a: Action) {
   const key = a.agent || AGENT_BY_TYPE[a.type];
-  return AGENTS[key] || { label: a.type, emoji: "🤖", color: "#6b6b6b", blurb: "" };
+  if (AGENTS[key]) return AGENTS[key];
+  // External agents publish their own label + a 🌐 badge via /api/publish.
+  if (a.agentLabel)
+    return { label: a.agentLabel, emoji: a.agentEmoji || "🌐", color: "#6b6b6b", blurb: "" };
+  return { label: a.type, emoji: "🤖", color: "#6b6b6b", blurb: "" };
 }
 
 function ago(ts: number) {
@@ -232,6 +236,10 @@ export default async function AgentPage() {
       )}
 
       <div className="border-line text-ink-faint mt-16 border-t pt-5 text-[12px] leading-[1.7]">
+        <a className="link-quiet font-mono text-ink-mute" href="/agent/build">
+          Build on Arc Pump →
+        </a>
+        {"   ·   "}
         <a className="link-quiet font-mono text-ink-mute" href="/agent/transparency">
           Transparency &amp; guardrails →
         </a>
