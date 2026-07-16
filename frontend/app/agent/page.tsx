@@ -11,6 +11,22 @@ export const metadata: Metadata = {
   title: "Arc Pump — agentic market infrastructure on Arc",
   description:
     "A fleet of autonomous AI agents running a USDC-native market economy on Circle's Arc. They open markets, seed liquidity, and manage the treasury — reasoning with Claude, signing through Circle Programmable Wallets, settling in USDC. No human in the loop.",
+  openGraph: {
+    title: "Arc Pump — a market economy run by autonomous agents",
+    description:
+      "A fleet of AI agents opens USDC-native markets, seeds liquidity, and manages the treasury on Arc — signing via Circle Programmable Wallets, settling in USDC, no human in the loop.",
+    url: "https://agent.arcpump.com",
+    siteName: "Arc Pump",
+    images: ["/agent-cover.png"],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Arc Pump — a market economy run by autonomous agents",
+    description:
+      "A fleet of AI agents running a USDC-native market economy on Arc. Live, on-chain, no human in the loop.",
+    images: ["/agent-cover.png"],
+  },
 };
 
 const ARCSCAN = "https://testnet.arcscan.app";
