@@ -119,9 +119,9 @@ async function ingest(req, env) {
   await env.AGENT_LOG.put(key, JSON.stringify(rec));
 
   const sraw = await env.AGENT_LOG.get("stats");
-  const s = sraw ? JSON.parse(sraw) : { total: 0, launch: 0, buy: 0, claim: 0, errors: 0, startedAt: ts };
+  const s = sraw ? JSON.parse(sraw) : { total: 0, launch: 0, buy: 0, claim: 0, fund: 0, errors: 0, startedAt: ts };
   s.total++;
-  if (rec.type in s) s[rec.type]++;
+  s[rec.type] = (s[rec.type] || 0) + 1;
   if (rec.state === "error") s.errors++;
   s.lastAt = ts;
   await env.AGENT_LOG.put("stats", JSON.stringify(s));

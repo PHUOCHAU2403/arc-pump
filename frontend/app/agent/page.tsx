@@ -41,17 +41,19 @@ type Stats = {
   launch?: number;
   buy?: number;
   claim?: number;
+  fund?: number;
+  external?: number;
   errors?: number;
 };
 
 // The fleet. Each agent owns one economic function; actions map 1:1 to a role,
 // so we can attribute even older records (before the `agent` field existed).
-const AGENTS: Record<string, { label: string; emoji: string; color: string; blurb: string }> = {
-  launcher: { label: "Launcher", emoji: "🚀", color: "#c2410c", blurb: "Opens new USDC-native markets" },
-  marketmaker: { label: "Market Maker", emoji: "📈", color: "#166534", blurb: "Seeds liquidity into live markets" },
-  treasury: { label: "Treasury", emoji: "🏦", color: "#b45309", blurb: "Harvests fees to self-fund the economy" },
+const AGENTS: Record<string, { label: string; emoji: string; color: string; blurb: string; addr: string }> = {
+  launcher: { label: "Launcher", emoji: "🚀", color: "#c2410c", blurb: "Opens markets · harvests its fees", addr: "0x9f26dfba277afdd6e5df307f7d9363abe2f72b6a" },
+  marketmaker: { label: "Market Maker", emoji: "📈", color: "#166534", blurb: "Seeds liquidity into live markets", addr: "0xc3c42c1119223949aff92fa3e9ddbef323ef409d" },
+  treasury: { label: "Treasury", emoji: "🏦", color: "#b45309", blurb: "Funds low agents from its reserve", addr: "0xba557d58de4e10ccfb572020e3a3a47ec1a1dd07" },
 };
-const AGENT_BY_TYPE: Record<string, string> = { launch: "launcher", buy: "marketmaker", claim: "treasury" };
+const AGENT_BY_TYPE: Record<string, string> = { launch: "launcher", buy: "marketmaker", claim: "launcher", fund: "treasury" };
 function agentFor(a: Action) {
   const key = a.agent || AGENT_BY_TYPE[a.type];
   if (AGENTS[key]) return AGENTS[key];
@@ -75,7 +77,8 @@ function title(a: Action) {
   if (a.type === "launch" && a.name) return `Launched ${a.name} ($${a.symbol})`;
   if (a.type === "buy")
     return a.token ? `Bought into $${a.token}` : "Bought into a curve";
-  if (a.type === "claim") return "Claimed creator fees";
+  if (a.type === "claim") return "Swept creator fees to Treasury";
+  if (a.type === "fund") return a.token ? `Funded ${a.token}` : "Funded an agent";
   return a.summary || a.type;
 }
 
@@ -149,12 +152,16 @@ export default async function AgentPage() {
         ))}
       </div>
 
-      <div className="type-kicker mt-12 mb-3">The fleet</div>
+      <div className="type-kicker mt-12 mb-3">The fleet — three wallets, one economy</div>
       <div className="bg-line border-line grid gap-px border sm:grid-cols-3">
         {(["launcher", "marketmaker", "treasury"] as const).map((key) => {
           const ag = AGENTS[key];
           const count =
-            key === "launcher" ? stats.launch : key === "marketmaker" ? stats.buy : stats.claim;
+            key === "launcher"
+              ? (stats.launch || 0) + (stats.claim || 0)
+              : key === "marketmaker"
+                ? stats.buy
+                : stats.fund;
           return (
             <div key={key} className="bg-paper p-4">
               <div className="flex items-center gap-2">
@@ -162,6 +169,14 @@ export default async function AgentPage() {
                 <span className="font-medium">{ag.label}</span>
               </div>
               <div className="text-ink-mute mt-1.5 text-[13px] leading-snug">{ag.blurb}</div>
+              <a
+                className="link-quiet font-mono text-ink-faint mt-2 block text-[11px]"
+                href={`${ARCSCAN}/address/${ag.addr}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {ag.addr.slice(0, 8)}…{ag.addr.slice(-6)}
+              </a>
               <div
                 className="type-mono-stat mt-3 text-[1.15rem] font-medium"
                 style={{ color: ag.color }}

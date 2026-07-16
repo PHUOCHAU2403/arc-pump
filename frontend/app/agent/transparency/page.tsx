@@ -42,8 +42,8 @@ const FLEET = [
     emoji: "🚀",
     label: "Launcher",
     color: "#c2410c",
-    method: "MemeFactory.createToken(…)",
-    can: "Open a new USDC-native market",
+    method: "createToken(…) · claimCreatorFees(→ Treasury)",
+    can: "Open markets, then sweep its earned fees to the Treasury",
     limit: "≤ 1 USDC — the protocol launch fee",
   },
   {
@@ -58,9 +58,9 @@ const FLEET = [
     emoji: "🏦",
     label: "Treasury",
     color: "#b45309",
-    method: "BondingCurve.claimCreatorFees(…)",
-    can: "Harvest fees the fleet already earned",
-    limit: "0 spend — only collects",
+    method: "USDC transfer (native)",
+    can: "Fund whichever agent is low, from its reserve",
+    limit: "Sends only to the fleet's own wallets",
   },
 ];
 
