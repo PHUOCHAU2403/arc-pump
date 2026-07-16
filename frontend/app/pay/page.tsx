@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { AutoRefresh } from "../agent/AutoRefresh";
+import { Playground } from "./Playground";
+import { LiveLedger } from "./LiveLedger";
+import { BudgetSim } from "./BudgetSim";
 
 // Landing + live ledger for the Arc Pump agent-payment rail. Dark, high-contrast
 // developer-infrastructure aesthetic (its own self-contained styling, separate
@@ -38,15 +40,6 @@ async function getLedger(): Promise<Ledger> {
   }
 }
 
-function ago(ts: number) {
-  const m = Math.floor((Date.now() - ts) / 60000), h = Math.floor(m / 60);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
-
 export default async function PayPage() {
   const { purchases, stats } = await getLedger();
 
@@ -60,7 +53,6 @@ export default async function PayPage() {
         rel="stylesheet"
       />
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <AutoRefresh intervalMs={30000} />
 
       <div className="pp">
         <div className="glow" />
@@ -103,6 +95,13 @@ const { data } = await payer.`}<span className="fn">payAndFetch</span>{`(`}<span
           </div>
         </section>
 
+        {/* playground */}
+        <section id="try" className="play">
+          <div className="kick">Interactive · real on-chain</div>
+          <h2>Don&rsquo;t take our word for it.</h2>
+          <Playground />
+        </section>
+
         {/* how */}
         <section id="how" className="how">
           <div className="kick">The flow · x402-style</div>
@@ -122,37 +121,20 @@ const { data } = await payer.`}<span className="fn">payAndFetch</span>{`(`}<span
           </div>
         </section>
 
+        {/* simulator */}
+        <section className="simw">
+          <div className="kick">Guardrails · try the knobs</div>
+          <h2>Autonomous, never unbounded.</h2>
+          <p className="ssub">Every agent runs under a per-call cap and a total budget. Drag the sliders — see how many calls it gets, and when it refuses to pay.</p>
+          <BudgetSim />
+        </section>
+
         {/* ledger */}
         <section id="ledger" className="ledger">
           <div className="kick"><span className="live" /> Live ledger</div>
           <h2>Agents paying for what they use.</h2>
 
-          <div className="stats">
-            <div className="stat"><div className="n">{stats.count ?? 0}</div><div className="l">Paid calls</div></div>
-            <div className="stat"><div className="n acc">{(stats.totalUSDC ?? 0).toFixed(2)}</div><div className="l">USDC settled</div></div>
-            <div className="stat"><div className="n">{(stats.agents ?? []).length}</div><div className="l">Agents</div></div>
-          </div>
-
-          <div className="feed">
-            {purchases.length === 0 ? (
-              <div className="empty">No purchases yet — point an agent at the demo service.</div>
-            ) : (
-              purchases.map((p, i) => (
-                <div key={p.invoice + i} className="frow">
-                  <div className="who">
-                    <span className="avatar" />
-                    <span className="wn">{p.agentName || "Agent"}</span>
-                    {p.agent ? (
-                      <a className="waddr" href={`${ARCSCAN}/address/${p.agent}`} target="_blank" rel="noreferrer">{short(p.agent)}</a>
-                    ) : null}
-                  </div>
-                  <div className="what">paid for <code>{p.resource}</code></div>
-                  <div className="amt">+{p.amountUSDC} USDC</div>
-                  <div className="tm">{ago(p.ts)}</div>
-                </div>
-              ))
-            )}
-          </div>
+          <LiveLedger initial={{ purchases, stats }} />
         </section>
 
         {/* why arc */}
@@ -169,11 +151,11 @@ const { data } = await payer.`}<span className="fn">payAndFetch</span>{`(`}<span
           </div>
         </section>
 
-        {/* try */}
-        <section id="try" className="try">
+        {/* dev */}
+        <section id="dev" className="try">
           <div className="card try2">
-            <div className="kick">Try it</div>
-            <h3>Hit the paywall yourself.</h3>
+            <div className="kick">For developers</div>
+            <h3>Or hit the paywall from your terminal.</h3>
             <div className="cmd">
               <span className="c">{`# 1) get an invoice`}</span>{`
 curl `}<span className="s">{SERVICE_URL}</span>{`
@@ -304,8 +286,62 @@ const CSS = `
 .fl{display:flex;gap:12px;align-items:center;color:var(--faint)}
 .fl a:hover{color:var(--acc2)}
 
+/* playground */
+.play{padding-top:92px}
+.pg{margin-top:30px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));padding:26px}
+.pg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.pg-t{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:1.3rem}
+.pg-s{color:var(--mut);font-size:14px;line-height:1.55;margin-top:6px;max-width:54ch}.pg-s b{color:var(--txt)}
+.pg-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:24px}
+.pgs{border:1px solid var(--line);border-radius:13px;padding:16px;background:var(--bg2);opacity:.55;transition:opacity .35s,border-color .35s,box-shadow .35s}
+.pgs.active{opacity:1;border-color:var(--acc);box-shadow:0 0 0 1px rgba(52,211,153,.25),0 14px 34px -14px rgba(52,211,153,.4)}
+.pgs.done{opacity:1;border-color:var(--line2)}
+.pgs-top{display:flex;align-items:center;gap:9px}
+.pgs-dot{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-family:"JetBrains Mono",monospace;background:var(--line2);color:var(--mut);flex:none}
+.pgs.active .pgs-dot,.pgs.done .pgs-dot{background:var(--acc);color:#04120c}
+.pgs-title{font-family:"Space Grotesk",sans-serif;font-weight:600}
+.pgs-mono{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--faint);margin:12px 0 8px;word-break:break-all}
+.pgs.active .pgs-mono,.pgs.done .pgs-mono{color:var(--acc2)}
+.pgs-body{color:var(--mut);font-size:13px;line-height:1.5}.pgs-body b{color:var(--txt)}
+.pg-data{color:var(--txt);font-style:italic}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid rgba(4,18,12,.35);border-top-color:#04120c;animation:sp .7s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.pg-err{margin-top:16px;color:#fca5a5;font-size:13px;background:rgba(220,38,38,.09);border:1px solid rgba(220,38,38,.25);border-radius:10px;padding:10px 14px}
+.pg-note{margin-top:16px;color:var(--faint);font-size:12px}
+.lnk{color:var(--acc2)}.lnk:hover{text-decoration:underline}
+
+/* simulator */
+.simw{padding-top:92px}
+.ssub{color:var(--mut);font-size:15px;max-width:56ch;margin-top:12px;line-height:1.6}
+.sim{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);margin-top:30px;overflow:hidden}
+.sim-l{background:var(--bg2);padding:26px}
+.sim-r{background:#0d0f13;padding:26px;display:flex;flex-direction:column;justify-content:center}
+.sim-row{margin-bottom:22px}.sim-row:last-child{margin-bottom:0}
+.sim-rl{display:flex;justify-content:space-between;font-size:13.5px;color:var(--mut)}.sim-rl .mono{color:var(--txt)}
+.sim input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:999px;background:var(--line2);outline:none;margin-top:11px}
+.sim input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--acc);cursor:pointer;box-shadow:0 0 0 4px rgba(52,211,153,.15)}
+.sim input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-radius:50%;background:var(--acc);cursor:pointer}
+.sim-big{font-family:"JetBrains Mono",monospace;font-size:3rem;font-weight:500;color:var(--acc);letter-spacing:-.02em;line-height:1}
+.sim-big.bad{color:#fca5a5}
+.sim-cap{color:var(--mut);font-size:13.5px;line-height:1.6;margin-top:10px}.sim-cap b{color:var(--txt)}
+.sim-bar{height:6px;border-radius:999px;background:var(--line2);margin-top:18px;overflow:hidden}
+.sim-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:999px;transition:width .2s}
+.sim-hint{color:var(--faint);font-size:11.5px;margin-top:8px}
+
+/* interactive ledger rows */
+.frow{cursor:pointer;transition:background .2s}
+.frow:hover{background:rgba(255,255,255,.025)}
+.frow.new{animation:rowin 1s ease}
+@keyframes rowin{0%{background:rgba(52,211,153,.16)}100%{background:transparent}}
+.frow-x{grid-column:1/-1;max-height:0;overflow:hidden;opacity:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px;transition:max-height .28s ease,opacity .28s ease,margin .28s ease}
+.frow.open .frow-x{max-height:170px;opacity:1;margin-top:10px}
+.frow-x .xl{color:var(--faint);display:inline-block;width:62px;font-family:"JetBrains Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em}
+.frow-x .mono{color:var(--mut);word-break:break-all}
+.frow-x .ok{color:var(--acc)}
+.mono{font-family:"JetBrains Mono",monospace}
+
 @media(max-width:720px){
-  .steps,.stats,.whyg{grid-template-columns:1fr}
+  .steps,.stats,.whyg,.pg-steps,.sim{grid-template-columns:1fr}
   .frow{grid-template-columns:1fr auto;row-gap:6px}
   .what{grid-column:1/-1;order:3}.tm{display:none}
   .navr a:not(.chip){display:none}

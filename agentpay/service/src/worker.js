@@ -27,11 +27,17 @@ const json = (o, status = 200) =>
 
 export default {
   async fetch(req, env) {
-    const url = new URL(req.url);
-    if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
-    if (url.pathname === "/premium") return premium(req, env, url);
-    if (url.pathname === "/ledger") return json(await loadLedger(env));
-    return dashboard(env);
+    try {
+      const url = new URL(req.url);
+      if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
+      if (url.pathname === "/premium") return await premium(req, env, url);
+      if (url.pathname === "/ledger") return json(await loadLedger(env));
+      if (url.pathname === "/demo-pay" && req.method === "POST") return await demoPay(req, env);
+      if (url.pathname === "/demo-status") return await demoStatus(req, env, url);
+      return await dashboard(env);
+    } catch (e) {
+      return json({ error: "worker error: " + String((e && e.message) || e).slice(0, 220) }, 500);
+    }
   },
 };
 
@@ -104,6 +110,97 @@ async function loadLedger(env) {
   const sraw = await env.INVOICES.get("ledger-stats");
   const stats = sraw ? JSON.parse(sraw) : { count: 0, totalUSDC: 0, agents: [] };
   return { purchases, stats, router: ROUTER, service: SERVICE, price: PRICE_USDC };
+}
+
+// ---------- sponsored demo payment (real, on-chain, rate-limited) ----------
+// Lets a visitor trigger a REAL agent payment on Arc from the landing page.
+// The agent's Circle wallet pays the invoice; spam is bounded by a per-IP
+// cooldown + a global daily cap. Secrets: CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET,
+// CIRCLE_WALLET_ID (wrangler secret put).
+const CIRCLE_API = "https://api.circle.com/v1/w3s";
+const DEMO_DAILY_CAP = 300;
+
+async function demoPay(req, env) {
+  let b; try { b = await req.json(); } catch { return json({ error: "bad json" }, 400); }
+  const invoice = String(b.invoice || "");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(invoice)) return json({ error: "a valid invoice is required" }, 400);
+  if (!env.CIRCLE_API_KEY) return json({ error: "sponsor payments not configured" }, 503);
+
+  const ip = req.headers.get("cf-connecting-ip") || "anon";
+  if (await env.INVOICES.get(`dip:${ip}`)) return json({ error: "one demo payment at a time — give it a few seconds" }, 429);
+  const day = new Date().toISOString().slice(0, 10);
+  const gc = Number((await env.INVOICES.get(`dcount:${day}`)) || "0");
+  if (gc >= DEMO_DAILY_CAP) return json({ error: "daily demo limit reached — grab the SDK to keep going" }, 429);
+  await env.INVOICES.put(`dip:${ip}`, "1", { expirationTtl: 60 }); // KV min TTL is 60s (doubles as per-IP cooldown)
+
+  let id;
+  try { id = await circlePay(env, invoice); }
+  catch (e) { return json({ error: "payment failed: " + String(e.message || e).slice(0, 160) }, 502); }
+  await env.INVOICES.put(`dcount:${day}`, String(gc + 1), { expirationTtl: 60 * 60 * 26 });
+  return json({ ok: true, id, invoice });
+}
+
+async function demoStatus(req, env, url) {
+  const id = url.searchParams.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+  try {
+    const t = await circleGetTx(env, id);
+    return json({ state: t.state, txHash: t.txHash || null });
+  } catch (e) {
+    return json({ error: String(e.message || e).slice(0, 160) }, 502);
+  }
+}
+
+async function circlePay(env, invoice) {
+  const body = {
+    idempotencyKey: crypto.randomUUID(),
+    entitySecretCiphertext: await entityCiphertext(env),
+    walletId: env.CIRCLE_WALLET_ID,
+    contractAddress: ROUTER,
+    abiFunctionSignature: "pay(bytes32,address)",
+    abiParameters: [invoice, SERVICE],
+    amount: PRICE_USDC,
+    feeLevel: "MEDIUM",
+  };
+  const r = await fetch(`${CIRCLE_API}/developer/transactions/contractExecution`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.CIRCLE_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  if (!j?.data?.id) throw new Error(j?.message || JSON.stringify(j).slice(0, 160));
+  return j.data.id;
+}
+
+async function circleGetTx(env, id) {
+  const r = await fetch(`${CIRCLE_API}/transactions/${id}`, { headers: { authorization: `Bearer ${env.CIRCLE_API_KEY}` } });
+  const j = await r.json();
+  const t = j?.data?.transaction || {};
+  return { state: t.state || "UNKNOWN", txHash: t.txHash };
+}
+
+// Encrypt the 32-byte entity secret with Circle's RSA public key (per request).
+async function entityCiphertext(env) {
+  const r = await fetch(`${CIRCLE_API}/config/entity/publicKey`, { headers: { authorization: `Bearer ${env.CIRCLE_API_KEY}` } });
+  const pem = (await r.json())?.data?.publicKey;
+  if (!pem) throw new Error("could not fetch entity public key");
+  const der = pemToDer(pem);
+  const key = await crypto.subtle.importKey("spki", der, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+  const ct = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, key, hexToBytes(env.CIRCLE_ENTITY_SECRET));
+  return btoa(String.fromCharCode(...new Uint8Array(ct)));
+}
+function pemToDer(pem) {
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function hexToBytes(h) {
+  h = h.replace(/^0x/, "");
+  const a = new Uint8Array(h.length / 2);
+  for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16);
+  return a;
 }
 
 // ---------- dashboard ----------
