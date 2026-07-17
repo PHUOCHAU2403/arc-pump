@@ -27,6 +27,7 @@ export function LiveLedger({ initial }: { initial: Ledger }) {
 
   useEffect(() => {
     let alive = true;
+    fetch(`${SVC}/hit`).catch(() => {}); // count this page view (once per load)
     async function tick() {
       try {
         const d: Ledger = await (await fetch(`${SVC}/ledger?t=${Date.now()}`)).json();

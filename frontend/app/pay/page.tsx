@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Playground } from "./Playground";
+import { WalletPay } from "./WalletPay";
 import { LiveLedger } from "./LiveLedger";
 import { BudgetSim } from "./BudgetSim";
 
@@ -100,6 +101,7 @@ const { data } = await payer.`}<span className="fn">payAndFetch</span>{`(`}<span
           <div className="kick">Interactive · real on-chain</div>
           <h2>Don&rsquo;t take our word for it.</h2>
           <Playground />
+          <WalletPay />
         </section>
 
         {/* how */}
@@ -309,6 +311,16 @@ const CSS = `
 .pg-err{margin-top:16px;color:#fca5a5;font-size:13px;background:rgba(220,38,38,.09);border:1px solid rgba(220,38,38,.25);border-radius:10px;padding:10px 14px}
 .pg-note{margin-top:16px;color:var(--faint);font-size:12px}
 .lnk{color:var(--acc2)}.lnk:hover{text-decoration:underline}
+
+/* wallet pay */
+.wp{margin-top:16px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.015);padding:22px}
+.wp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.wp-t{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:1.05rem}
+.wp-s{color:var(--mut);font-size:13px;line-height:1.5;margin-top:5px;max-width:48ch}
+.wp-act{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px}
+.wp-note{color:var(--faint);font-size:13px;margin-top:16px}
+.wp-ok{color:var(--acc);font-size:13.5px;font-weight:500}
+.wp-foot{color:var(--faint);font-size:12px;margin-top:16px}
 
 /* simulator */
 .simw{padding-top:92px}

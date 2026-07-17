@@ -34,6 +34,8 @@ export default {
       if (url.pathname === "/ledger") return json(await loadLedger(env));
       if (url.pathname === "/demo-pay" && req.method === "POST") return await demoPay(req, env);
       if (url.pathname === "/demo-status") return await demoStatus(req, env, url);
+      if (url.pathname === "/hit") return await hit(req, env);
+      if (url.pathname === "/analytics") return await analytics(req, env, url);
       return await dashboard(env);
     } catch (e) {
       return json({ error: "worker error: " + String((e && e.message) || e).slice(0, 220) }, 500);
@@ -203,6 +205,48 @@ function hexToBytes(h) {
   const a = new Uint8Array(h.length / 2);
   for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16);
   return a;
+}
+
+// ---------- analytics ----------
+// Lightweight, privacy-respecting: daily page views + unique visitors (by a
+// short hash of IP, never the raw IP). Demo runs come from the dcount counter.
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+
+async function hit(req, env) {
+  const day = todayUTC();
+  const views = Number((await env.INVOICES.get(`views:${day}`)) || "0") + 1;
+  await env.INVOICES.put(`views:${day}`, String(views), { expirationTtl: 60 * 60 * 24 * 40 });
+  // unique visitor: hash the IP so we never store it raw
+  const ip = req.headers.get("cf-connecting-ip") || "anon";
+  const h = await sha8(ip + ":" + day);
+  if (!(await env.INVOICES.get(`uv:${day}:${h}`))) {
+    await env.INVOICES.put(`uv:${day}:${h}`, "1", { expirationTtl: 60 * 60 * 48 });
+    const u = Number((await env.INVOICES.get(`uniq:${day}`)) || "0") + 1;
+    await env.INVOICES.put(`uniq:${day}`, String(u), { expirationTtl: 60 * 60 * 24 * 40 });
+  }
+  return json({ ok: true });
+}
+
+async function analytics(req, env, url) {
+  if (!env.ANALYTICS_KEY || url.searchParams.get("key") !== env.ANALYTICS_KEY)
+    return json({ error: "unauthorized" }, 403);
+  const days = [];
+  let tViews = 0, tUniq = 0, tRuns = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const views = Number((await env.INVOICES.get(`views:${d}`)) || "0");
+    const uniq = Number((await env.INVOICES.get(`uniq:${d}`)) || "0");
+    const demoRuns = Number((await env.INVOICES.get(`dcount:${d}`)) || "0");
+    days.push({ day: d, views, uniqueVisitors: uniq, demoRuns });
+    tViews += views; tUniq += uniq; tRuns += demoRuns;
+  }
+  const ledger = await loadLedger(env);
+  return json({ last7days: days, totals: { views: tViews, uniqueVisitors: tUniq, demoRuns: tRuns, paidCalls: ledger.stats.count || 0, usdcSettled: ledger.stats.totalUSDC || 0 } });
+}
+
+async function sha8(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].slice(0, 4).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // ---------- dashboard ----------
