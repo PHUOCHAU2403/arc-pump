@@ -54,6 +54,7 @@ export function Playground() {
       setStage(4);
     } catch (e) {
       setErr(String((e as Error).message || e));
+      setStage(0); // stop the spinner; keep the error visible
     } finally {
       setRunning(false);
     }

@@ -127,11 +127,13 @@ async function demoPay(req, env) {
   if (!env.CIRCLE_API_KEY) return json({ error: "sponsor payments not configured" }, 503);
 
   const ip = req.headers.get("cf-connecting-ip") || "anon";
-  if (await env.INVOICES.get(`dip:${ip}`)) return json({ error: "one demo payment at a time — give it a few seconds" }, 429);
+  const now = Date.now();
+  const last = Number((await env.INVOICES.get(`dip:${ip}`)) || "0");
+  if (now - last < 15000) return json({ error: "just a moment — one demo payment every ~15s" }, 429);
   const day = new Date().toISOString().slice(0, 10);
   const gc = Number((await env.INVOICES.get(`dcount:${day}`)) || "0");
   if (gc >= DEMO_DAILY_CAP) return json({ error: "daily demo limit reached — grab the SDK to keep going" }, 429);
-  await env.INVOICES.put(`dip:${ip}`, "1", { expirationTtl: 60 }); // KV min TTL is 60s (doubles as per-IP cooldown)
+  await env.INVOICES.put(`dip:${ip}`, String(now), { expirationTtl: 60 });
 
   let id;
   try { id = await circlePay(env, invoice); }
