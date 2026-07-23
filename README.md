@@ -1,118 +1,87 @@
-# Arc Pump Agent
+# Arc Pump — pay-per-call payments for AI agents on Arc
 
-**An autonomous AI agent that operates a USDC-native launchpad on Arc.**
-It wakes on a schedule, reasons about its market with Claude, decides what to do —
-launch a token, buy into a bonding curve, or claim creator fees — signs through a
-**Circle Programmable Wallet**, and settles every transaction in **USDC on Arc**.
-No human in the loop.
+**A payment rail where autonomous AI agents pay per request in USDC on Arc** — metered,
+capped, settled and verified on-chain. No subscriptions, no API keys, no humans in the loop.
 
-> Submission for **The Stablecoin Commerce Stack Challenge** (Ignyte × Circle × Arc)
-> — Track 4: **Best Agentic Economy Experience on Arc**.
+- 🟢 **Live demo (interactive):** https://arcpump.com/pay — click **Run it** to watch a real
+  AI agent pay 0.01 USDC on Arc to unlock a resource, with the on-chain transaction. Or
+  connect a wallet and pay it yourself.
+- 📄 **PaymentRouter (Arc testnet):** [`0x42bCE0…28ff`](https://testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff)
+- 🔌 **Demo paid service:** https://agentpay-service.arcpump2403.workers.dev/premium
 
-- 🔴 **Live dashboard:** https://agent.arcpump.com
-- 🤖 **Agent wallet (Arc testnet):** [`0x9f26df…72b6a`](https://testnet.arcscan.app/address/0x9f26dfba277afdd6e5df307f7d9363abe2f72b6a) — Circle MPC wallet
-- 🏭 **MemeFactory contract:** [`0x4dCf32…0546c`](https://testnet.arcscan.app/address/0x4dCf3238dd90E571e82bC07fD876B384f170546c) (Arc testnet, chain 5042002)
+## The problem
 
-## Architecture
+As autonomous AI agents start doing real work, they need to pay for the services they
+consume — APIs, data, compute. But today's payments are built for humans: subscriptions,
+API keys, checkout with a card. None of that fits a machine that makes one call, once,
+with no human in the loop.
 
-![Architecture](agent-dashboard/architecture.svg)
+## How it works (x402-style)
 
-The agent runs a closed autonomous loop every 6 hours:
-
-1. **Reason** — Claude (Opus 4.8, adaptive thinking) reads on-chain state and decides
-   the next action + invents a token concept, returning a human-readable reasoning string.
-2. **Sign** — the chosen contract call is signed by a **Circle Programmable Wallet**
-   (developer-controlled, MPC) on `ARC-TESTNET` — the server never holds a private key.
-3. **Settle** — the transaction executes against the Arc Pump smart contracts
-   (`MemeFactory` + `BondingCurve`) and settles in **native USDC on Arc**.
-4. **Show** — the action + Claude's reasoning + the tx hash are posted to a live
-   dashboard (Cloudflare Worker + KV) that anyone can watch.
-
-## How Circle tools are integrated
-
-- **Circle Programmable Wallets (Developer-Controlled, MPC)** — the agent's signer.
-  We register an entity secret, create a wallet set, and create an `EOA` wallet on
-  `ARC-TESTNET` (`@circle-fin/developer-controlled-wallets`). Every action is an MPC
-  `createContractExecutionTransaction` call with `abiFunctionSignature` +
-  `abiParameters` + a native `amount` (= `msg.value`) for payable calls; we poll
-  `getTransaction` to `COMPLETE`. See [`agent/setup-wallet.mjs`](agent/setup-wallet.mjs)
-  and [`agent/agent.mjs`](agent/agent.mjs).
-- **USDC** — native gas/value token on Arc. The launch fee, bonding-curve buys, and
-  creator-fee payouts all settle in USDC end-to-end.
-- **Nanopayments** — conceptual next step for high-frequency, sub-cent agentic
-  settlement (see the feedback doc).
-
-Detailed, hands-on notes (what worked, rough edges, recommendations):
-[`agent-dashboard/CIRCLE_PRODUCT_FEEDBACK.md`](agent-dashboard/CIRCLE_PRODUCT_FEEDBACK.md).
-
-## Repository layout
-
-```
-src/                     Arc Pump Solidity contracts (MemeFactoryV2, BondingCurveV2)
-frontend/                Arc Pump web app (Next.js, USDC-native launchpad UI)
-agent/                   The autonomous agent
-  agent.mjs              reason (Claude) -> sign (Circle) -> execute (Arc) -> ingest
-  setup-wallet.mjs       one-time Circle dev-controlled wallet creation
-agent-dashboard/         Live dashboard + ingest (Cloudflare Worker)
-  src/worker.js          Strategist-Minimal dashboard, KV-backed
-  architecture.svg       architecture diagram
-  CIRCLE_PRODUCT_FEEDBACK.md
+```mermaid
+flowchart LR
+  A["🤖 AI agent"] -->|"GET /resource"| S["Service"]
+  S -->|"402 Payment Required + invoice"| A
+  A -->|"router.pay(invoice, service) · USDC on Arc"| R["PaymentRouter"]
+  R -->|"forwards USDC"| S
+  A -->|"retry with proof"| S
+  S -->|"verify on-chain → 200 + data"| A
 ```
 
-## Setup
+1. **Request** — the agent hits a paid resource and gets `402 Payment Required` + an invoice.
+2. **Pay** — its **Circle Programmable Wallet** (MPC, no raw key) pays the invoice through the
+   on-chain **PaymentRouter** in native USDC — within a per-call cap and a total budget.
+3. **Unlock** — the service verifies the payment on-chain (bound to the invoice **and** the
+   recipient) in one view call, then serves the response. One payment, one call.
 
-### 1. Contracts (already live on Arc testnet)
+Native USDC on Arc has no memo field, so a raw transfer can't be tied to an invoice — the
+small `PaymentRouter` contract fixes that by binding every payment to its invoice + recipient.
 
-`MemeFactoryV2` is deployed at `0x4dCf3238dd90E571e82bC07fD876B384f170546c`
-(chain `5042002`, RPC `https://rpc.testnet.arc.network`). To redeploy, see `script/`.
+## Repository layout (the rail)
 
-### 2. Circle wallet (one-time)
+```
+src/PaymentRouter.sol         invoice-bound native-USDC settlement router (deployed on Arc)
+agentpay/service/             "sell side": HTTP 402 wrapper + on-chain verify + serve + ledger
+agentpay/client/payfetch.mjs  "buy side": payAndFetch() with per-call + total-budget guardrails
+frontend/app/pay/             landing + interactive playground + live ledger (arcpump.com/pay)
+agentpay/ArcPump-deck.pdf     pitch deck
+```
+
+## Run it
+
+**Live** — just open https://arcpump.com/pay and click **Run it**.
+
+**From the terminal:**
 
 ```bash
-cd agent
-npm install
-# .env needs: CIRCLE_API_KEY=TEST_API_KEY:...
-node setup-wallet.mjs   # registers entity secret + creates the ARC-TESTNET wallet
-# writes CIRCLE_ENTITY_SECRET, CIRCLE_WALLET_ID, AGENT_ADDRESS back to .env
+# 1) get an invoice (402)
+curl https://agentpay-service.arcpump2403.workers.dev/premium
+
+# 2) pay router.pay(invoiceId, service) with 0.01 USDC on Arc, then retry:
+curl "https://agentpay-service.arcpump2403.workers.dev/premium?invoice=<id>"
 ```
 
-Fund the printed agent address with Arc-testnet USDC.
+**From an agent (the pay-client):**
 
-### 3. Dashboard (Cloudflare Worker)
+```js
+import { createPayer } from "./agentpay/client/payfetch.mjs";
 
-```bash
-cd agent-dashboard
-npx wrangler kv namespace create AGENT_LOG   # put the id in wrangler.toml
-echo "<random>" | npx wrangler secret put INGEST_TOKEN
-npx wrangler deploy
+const payer = createPayer({ circle, walletId, maxPerCall: 0.05, budget: 1 });
+const { data } = await payer.payAndFetch("https://…/premium");
+// → 402 → pays 0.01 USDC on Arc within its caps → 200 + data
 ```
 
-### 4. Run the agent
+## Built on
 
-`agent/.env` (gitignored) holds:
+- **Circle Programmable Wallets** (Developer-Controlled, MPC) — agents sign autonomously; no
+  private key on any server.
+- **Native USDC on Arc** — payments are plain value transfers, final in ~1 second.
+- **Solidity** (PaymentRouter, Foundry) · **Cloudflare Workers** (service + ledger) ·
+  **Next.js** (landing) · **viem** (Arc reads). AI-assisted development throughout.
 
-```
-CIRCLE_API_KEY=...
-CIRCLE_ENTITY_SECRET=...
-CIRCLE_WALLET_ID=...
-AGENT_ADDRESS=0x...
-ANTHROPIC_API_KEY=sk-ant-...
-DASHBOARD_INGEST=https://<worker>/ingest
-INGEST_TOKEN=...
-```
+---
 
-```bash
-cd agent
-node agent.mjs read     # show on-chain state + balance
-node agent.mjs reason   # Claude decides (no transaction)
-node agent.mjs tick     # full loop: reason -> tx on Arc -> dashboard
-```
-
-Run autonomously via cron (every 6h): `0 */6 * * * /path/to/run-tick.sh`.
-
-## Tech stack
-
-Solidity (Foundry) · Next.js · Node.js · viem (Arc RPC) ·
-Circle Programmable Wallets SDK · Anthropic Claude (Opus 4.8) · Cloudflare Workers + KV.
-
-*For educational and testnet demo purposes only.*
+*This repository also contains an earlier iteration the project evolved from — a USDC-native
+launchpad with an autonomous agent fleet (`src/MemeFactoryV2.sol`, `agent/`, `agent-dashboard/`,
+`frontend/app/agent`, live at [agent.arcpump.com](https://agent.arcpump.com)). We pivoted from
+that into the pay-per-call payment rail above. For educational and testnet demo purposes only.*
