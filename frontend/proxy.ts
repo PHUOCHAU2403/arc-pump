@@ -18,6 +18,13 @@ export function proxy(req: NextRequest) {
     }
   }
 
+  // Apex home now shows the payment rail (the current project), not the legacy
+  // launchpad landing. URL stays arcpump.com; other routes are untouched.
+  if (url.pathname === "/" && (host === "arcpump.com" || host === "www.arcpump.com")) {
+    url.pathname = "/pay";
+    return NextResponse.rewrite(url);
+  }
+
   return NextResponse.next();
 }
 
