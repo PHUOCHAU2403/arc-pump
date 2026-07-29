@@ -59,21 +59,10 @@ contract MemeFactory is Ownable {
         if (msg.value < createFee) revert InsufficientFee();
 
         // 1. Deploy BondingCurve first (needs to exist before MemeToken can reference it).
-        BondingCurve newCurve = new BondingCurve(
-            DEFAULT_START_PRICE,
-            DEFAULT_SLOPE,
-            DEFAULT_MAX_SUPPLY
-        );
+        BondingCurve newCurve = new BondingCurve(DEFAULT_START_PRICE, DEFAULT_SLOPE, DEFAULT_MAX_SUPPLY);
 
         // 2. Deploy MemeToken bound to that curve.
-        MemeToken newToken = new MemeToken(
-            name,
-            symbol,
-            imageURI,
-            description,
-            DEFAULT_MAX_SUPPLY,
-            address(newCurve)
-        );
+        MemeToken newToken = new MemeToken(name, symbol, imageURI, description, DEFAULT_MAX_SUPPLY, address(newCurve));
 
         // 3. Wire curve to know about its token.
         newCurve.setMemeToken(address(newToken));
@@ -93,20 +82,12 @@ contract MemeFactory is Ownable {
         );
         curveOf[address(newToken)] = address(newCurve);
 
-        emit TokenCreated(
-            id,
-            address(newToken),
-            msg.sender,
-            address(newCurve),
-            name,
-            symbol,
-            imageURI
-        );
+        emit TokenCreated(id, address(newToken), msg.sender, address(newCurve), name, symbol, imageURI);
 
         // 5. Refund any excess payment beyond createFee.
         uint256 refund = msg.value - createFee;
         if (refund > 0) {
-            (bool ok, ) = msg.sender.call{value: refund}("");
+            (bool ok,) = msg.sender.call{value: refund}("");
             if (!ok) revert TransferFailed();
         }
 
@@ -124,11 +105,7 @@ contract MemeFactory is Ownable {
     }
 
     /// @notice Paginated read for frontend. Returns at most `limit` tokens starting from `offset`.
-    function tokensBatch(uint256 offset, uint256 limit)
-        external
-        view
-        returns (TokenInfo[] memory)
-    {
+    function tokensBatch(uint256 offset, uint256 limit) external view returns (TokenInfo[] memory) {
         uint256 total = tokens.length;
         if (offset >= total) return new TokenInfo[](0);
 
@@ -152,7 +129,7 @@ contract MemeFactory is Ownable {
 
     function withdrawFees(address payable to) external onlyOwner {
         uint256 balance = address(this).balance;
-        (bool ok, ) = to.call{value: balance}("");
+        (bool ok,) = to.call{value: balance}("");
         if (!ok) revert TransferFailed();
     }
 }

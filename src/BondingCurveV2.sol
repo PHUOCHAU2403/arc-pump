@@ -43,18 +43,8 @@ contract BondingCurveV2 {
     uint256 public creatorFeesAccrued;
     uint256 public protocolFeesAccrued;
 
-    event Buy(
-        address indexed buyer,
-        uint256 tokensOut,
-        uint256 usdcIn,
-        uint256 fee
-    );
-    event Sell(
-        address indexed seller,
-        uint256 tokensIn,
-        uint256 usdcOut,
-        uint256 fee
-    );
+    event Buy(address indexed buyer, uint256 tokensOut, uint256 usdcIn, uint256 fee);
+    event Sell(address indexed seller, uint256 tokensIn, uint256 usdcOut, uint256 fee);
     event CreatorFeesClaimed(address indexed to, uint256 amount);
     event ProtocolFeesClaimed(address indexed to, uint256 amount);
 
@@ -146,7 +136,7 @@ contract BondingCurveV2 {
 
         uint256 refund = msg.value - total;
         if (refund > 0) {
-            (bool ok, ) = msg.sender.call{value: refund}("");
+            (bool ok,) = msg.sender.call{value: refund}("");
             if (!ok) revert TransferFailed();
         }
 
@@ -169,7 +159,7 @@ contract BondingCurveV2 {
             protocolFeesAccrued += (fee - creatorCut);
         }
 
-        (bool ok, ) = msg.sender.call{value: netRefund}("");
+        (bool ok,) = msg.sender.call{value: netRefund}("");
         if (!ok) revert TransferFailed();
 
         emit Sell(msg.sender, amount, netRefund, fee);
@@ -183,7 +173,7 @@ contract BondingCurveV2 {
         if (amount == 0) revert NothingToClaim();
 
         creatorFeesAccrued = 0;
-        (bool ok, ) = to.call{value: amount}("");
+        (bool ok,) = to.call{value: amount}("");
         if (!ok) revert TransferFailed();
 
         emit CreatorFeesClaimed(to, amount);
@@ -195,7 +185,7 @@ contract BondingCurveV2 {
         if (amount == 0) revert NothingToClaim();
 
         protocolFeesAccrued = 0;
-        (bool ok, ) = to.call{value: amount}("");
+        (bool ok,) = to.call{value: amount}("");
         if (!ok) revert TransferFailed();
 
         emit ProtocolFeesClaimed(to, amount);

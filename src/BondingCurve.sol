@@ -23,8 +23,8 @@ contract BondingCurve {
     IMemeToken public memeToken;
 
     uint256 public immutable startPrice; // USDC wei per 1 whole token at supply=0
-    uint256 public immutable slope;      // USDC wei increase per token-sold
-    uint256 public immutable maxSupply;  // total tokens in wei available on the curve
+    uint256 public immutable slope; // USDC wei increase per token-sold
+    uint256 public immutable maxSupply; // total tokens in wei available on the curve
 
     uint256 public reserve; // USDC wei currently held by the curve
 
@@ -100,7 +100,7 @@ contract BondingCurve {
         // Refund excess native USDC to buyer.
         uint256 refund = msg.value - cost;
         if (refund > 0) {
-            (bool ok, ) = msg.sender.call{value: refund}("");
+            (bool ok,) = msg.sender.call{value: refund}("");
             if (!ok) revert TransferFailed();
         }
 
@@ -115,7 +115,7 @@ contract BondingCurve {
         memeToken.burn(msg.sender, amount);
         reserve -= refund;
 
-        (bool ok, ) = msg.sender.call{value: refund}("");
+        (bool ok,) = msg.sender.call{value: refund}("");
         if (!ok) revert TransferFailed();
 
         emit Sell(msg.sender, amount, refund);

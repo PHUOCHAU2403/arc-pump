@@ -32,7 +32,7 @@ contract PaymentRouter {
         paidAmount[invoiceId] = msg.value;
         paidTo[invoiceId] = service;
 
-        (bool ok, ) = service.call{value: msg.value}("");
+        (bool ok,) = service.call{value: msg.value}("");
         if (!ok) revert TransferFailed();
 
         emit Paid(invoiceId, service, msg.sender, msg.value);

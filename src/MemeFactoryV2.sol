@@ -79,23 +79,10 @@ contract MemeFactoryV2 is Ownable {
         }
         if (tradeFeeBps > MAX_TRADE_FEE_BPS) revert TradeFeeTooHigh();
 
-        BondingCurveV2 newCurve = new BondingCurveV2(
-            DEFAULT_START_PRICE,
-            DEFAULT_SLOPE,
-            maxSupply,
-            msg.sender,
-            owner(),
-            tradeFeeBps
-        );
+        BondingCurveV2 newCurve =
+            new BondingCurveV2(DEFAULT_START_PRICE, DEFAULT_SLOPE, maxSupply, msg.sender, owner(), tradeFeeBps);
 
-        MemeToken newToken = new MemeToken(
-            name,
-            symbol,
-            imageURI,
-            description,
-            maxSupply,
-            address(newCurve)
-        );
+        MemeToken newToken = new MemeToken(name, symbol, imageURI, description, maxSupply, address(newCurve));
 
         newCurve.setMemeToken(address(newToken));
 
@@ -116,20 +103,12 @@ contract MemeFactoryV2 is Ownable {
         curveOf[address(newToken)] = address(newCurve);
 
         emit TokenCreated(
-            id,
-            address(newToken),
-            msg.sender,
-            address(newCurve),
-            name,
-            symbol,
-            imageURI,
-            maxSupply,
-            tradeFeeBps
+            id, address(newToken), msg.sender, address(newCurve), name, symbol, imageURI, maxSupply, tradeFeeBps
         );
 
         uint256 refund = msg.value - createFee;
         if (refund > 0) {
-            (bool ok, ) = msg.sender.call{value: refund}("");
+            (bool ok,) = msg.sender.call{value: refund}("");
             if (!ok) revert TransferFailed();
         }
 
@@ -146,11 +125,7 @@ contract MemeFactoryV2 is Ownable {
         return tokens[index];
     }
 
-    function tokensBatch(uint256 offset, uint256 limit)
-        external
-        view
-        returns (TokenInfo[] memory)
-    {
+    function tokensBatch(uint256 offset, uint256 limit) external view returns (TokenInfo[] memory) {
         uint256 total = tokens.length;
         if (offset >= total) return new TokenInfo[](0);
 
@@ -174,7 +149,7 @@ contract MemeFactoryV2 is Ownable {
 
     function withdrawLaunchFees(address payable to) external onlyOwner {
         uint256 balance = address(this).balance;
-        (bool ok, ) = to.call{value: balance}("");
+        (bool ok,) = to.call{value: balance}("");
         if (!ok) revert TransferFailed();
     }
 }

@@ -44,18 +44,8 @@ contract BondingCurveTempoV2 {
     uint256 public creatorFeesAccrued;
     uint256 public protocolFeesAccrued;
 
-    event Buy(
-        address indexed buyer,
-        uint256 tokensOut,
-        uint256 feeIn,
-        uint256 fee
-    );
-    event Sell(
-        address indexed seller,
-        uint256 tokensIn,
-        uint256 feeOut,
-        uint256 fee
-    );
+    event Buy(address indexed buyer, uint256 tokensOut, uint256 feeIn, uint256 fee);
+    event Sell(address indexed seller, uint256 tokensIn, uint256 feeOut, uint256 fee);
     event CreatorFeesClaimed(address indexed to, uint256 amount);
     event ProtocolFeesClaimed(address indexed to, uint256 amount);
 

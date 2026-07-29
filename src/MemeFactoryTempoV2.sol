@@ -96,23 +96,10 @@ contract MemeFactoryTempoV2 is Ownable {
         }
 
         BondingCurveTempoV2 newCurve = new BondingCurveTempoV2(
-            DEFAULT_START_PRICE,
-            DEFAULT_SLOPE,
-            maxSupply,
-            msg.sender,
-            owner(),
-            tradeFeeBps,
-            feeTokenAddr
+            DEFAULT_START_PRICE, DEFAULT_SLOPE, maxSupply, msg.sender, owner(), tradeFeeBps, feeTokenAddr
         );
 
-        MemeToken newToken = new MemeToken(
-            name,
-            symbol,
-            imageURI,
-            description,
-            maxSupply,
-            address(newCurve)
-        );
+        MemeToken newToken = new MemeToken(name, symbol, imageURI, description, maxSupply, address(newCurve));
 
         newCurve.setMemeToken(address(newToken));
 
@@ -133,15 +120,7 @@ contract MemeFactoryTempoV2 is Ownable {
         curveOf[address(newToken)] = address(newCurve);
 
         emit TokenCreated(
-            id,
-            address(newToken),
-            msg.sender,
-            address(newCurve),
-            name,
-            symbol,
-            imageURI,
-            maxSupply,
-            tradeFeeBps
+            id, address(newToken), msg.sender, address(newCurve), name, symbol, imageURI, maxSupply, tradeFeeBps
         );
 
         return (address(newToken), address(newCurve));
@@ -157,11 +136,7 @@ contract MemeFactoryTempoV2 is Ownable {
         return tokens[index];
     }
 
-    function tokensBatch(uint256 offset, uint256 limit)
-        external
-        view
-        returns (TokenInfo[] memory)
-    {
+    function tokensBatch(uint256 offset, uint256 limit) external view returns (TokenInfo[] memory) {
         uint256 total = tokens.length;
         if (offset >= total) return new TokenInfo[](0);
 
