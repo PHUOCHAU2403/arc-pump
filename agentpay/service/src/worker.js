@@ -1,12 +1,15 @@
-// Agent-pay demo service — the "sell side" of the pay-per-call rail, plus a
-// live ledger + dashboard.
+// Agent-pay service — the "sell side" of the pay-per-call rail, plus a live
+// ledger + dashboard.
 //
-//   GET /premium                  -> 402 + { invoice: { id, amount, router, service } }
-//   (agent pays router.pay(id, service) on Arc)
-//   GET /premium?invoice=<id>     -> 200 + data (verified on-chain, single-use);
-//                                    the paid call is recorded to the ledger
+//   GET /fairvalue                -> 402 + invoice (the real product: live
+//                                    prediction-market mispricing signal)
+//   GET /fairvalue?invoice=<id>   -> 200 + signal, verified on-chain, single-use
+//   GET /premium                  -> 402 / 200, same flow, placeholder payload
+//                                    kept so existing demos keep working
 //   GET /ledger                   -> JSON { purchases[], stats }
 //   GET /                         -> HTML dashboard of agent purchases
+//
+// Every 402 also carries the standard x402 v2 PAYMENT-REQUIRED header.
 
 const ROUTER = "0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff";
 const SERVICE = "0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e"; // this service's payee (USDC lands here)
@@ -26,12 +29,17 @@ const VERIFY_SELECTOR = "0x3ab5b633"; // verify(bytes32,address,uint256)
 const NETWORK = "eip155:5042002"; // Arc testnet
 const SCHEME = "arc-router-v1";
 const NATIVE_ASSET = "0x0000000000000000000000000000000000000000"; // native USDC has no ERC-20 address
-const SERVICE_URL = "https://agentpay-service.arcpump2403.workers.dev/premium";
+const BASE_URL = "https://agentpay-service.arcpump2403.workers.dev";
 
-const paymentRequirements = (invoiceId) => ({
+const DESCRIPTIONS = {
+  "/fairvalue": "Live fair-value and mispricing signal for short-dated crypto prediction markets.",
+  "/premium": "Pay-per-call resource settled in native USDC on Arc.",
+};
+
+const paymentRequirements = (invoiceId, resource) => ({
   x402Version: 2,
   error: "Payment required",
-  resource: { url: SERVICE_URL, description: "Pay-per-call resource settled in native USDC on Arc.", mimeType: "application/json" },
+  resource: { url: BASE_URL + resource, description: DESCRIPTIONS[resource], mimeType: "application/json" },
   accepts: [{
     scheme: SCHEME,
     network: NETWORK,
@@ -43,7 +51,7 @@ const paymentRequirements = (invoiceId) => ({
       name: "USDC", decimals: 18, native: true, router: ROUTER, invoiceId,
       pay: "router.pay(bytes32 invoiceId, address service) payable",
       verify: "router.verify(bytes32,address,uint256) view returns (bool)",
-      retry: `${SERVICE_URL}?invoice=${invoiceId}`,
+      retry: `${BASE_URL}${resource}?invoice=${invoiceId}`,
     },
   }],
 });
@@ -52,9 +60,9 @@ const b64 = (o) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.str
 
 // A 402 that carries both our own JSON body (unchanged, so existing clients keep
 // working) and the standard x402 header.
-const json402 = (body, invoiceId) => {
+const json402 = (body, invoiceId, resource) => {
   const r = json(body, 402);
-  r.headers.set("PAYMENT-REQUIRED", b64(paymentRequirements(invoiceId)));
+  r.headers.set("PAYMENT-REQUIRED", b64(paymentRequirements(invoiceId, resource)));
   return r;
 };
 
@@ -74,7 +82,8 @@ export default {
     try {
       const url = new URL(req.url);
       if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
-      if (url.pathname === "/premium") return await premium(req, env, url);
+      if (url.pathname === "/fairvalue") return await gate(req, env, url, "/fairvalue", fairValue);
+      if (url.pathname === "/premium") return await gate(req, env, url, "/premium", demoPayload);
       if (url.pathname === "/ledger") return json(await loadLedger(env));
       if (url.pathname === "/demo-pay" && req.method === "POST") return await demoPay(req, env);
       if (url.pathname === "/demo-status") return await demoStatus(req, env, url);
@@ -87,44 +96,266 @@ export default {
   },
 };
 
-async function premium(req, env, url) {
+// The payment gate. Identical for every paid resource: issue an invoice, verify
+// it on-chain, serve once. `produce` is what the buyer is actually paying for —
+// it only runs after payment is confirmed, so an unpaid caller costs us nothing
+// but a KV write.
+async function gate(req, env, url, resource, produce) {
   const provided = url.searchParams.get("invoice") || req.headers.get("x-payment");
 
   if (!provided) {
     const id = "0x" + [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    await env.INVOICES.put(id, JSON.stringify({ resource: "/premium", price: PRICE_WEI, served: false, ts: Date.now() }), { expirationTtl: 900 });
+    await env.INVOICES.put(id, JSON.stringify({ resource, price: PRICE_WEI, served: false, ts: Date.now() }), { expirationTtl: 900 });
     return json402({
       error: "payment required",
-      invoice: { id, amount: PRICE_WEI, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE, resource: "/premium", chain: "arc-testnet", expiresInSec: 900 },
-      how: `Call ${ROUTER}.pay(invoiceId, service) with ${PRICE_USDC} USDC, then retry GET /premium?invoice=${id}`,
-    }, id);
+      invoice: { id, amount: PRICE_WEI, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE, resource, chain: "arc-testnet", expiresInSec: 900 },
+      how: `Call ${ROUTER}.pay(invoiceId, service) with ${PRICE_USDC} USDC, then retry GET ${resource}?invoice=${id}`,
+    }, id, resource);
   }
 
   const inv = await env.INVOICES.get(provided, "json");
   if (!inv) return json({ error: "unknown or expired invoice" }, 400);
   if (inv.served) return json({ error: "invoice already used", invoice: provided }, 409);
+  // An invoice buys the resource it was issued for, not a different one.
+  if (inv.resource !== resource) return json({ error: `invoice was issued for ${inv.resource}`, invoice: provided }, 400);
 
   const ok = await verifyOnChain(provided, SERVICE, inv.price);
-  if (!ok) return json402({ error: "not paid yet", invoice: { id: provided, amount: inv.price, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE } }, provided);
+  if (!ok) return json402({ error: "not paid yet", invoice: { id: provided, amount: inv.price, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE } }, provided, resource);
 
+  const data = await produce();
+
+  // Only burn the invoice once we actually have something to hand back — if the
+  // upstream data sources are down, the buyer keeps their paid invoice.
   inv.served = true;
   await env.INVOICES.put(provided, JSON.stringify(inv), { expirationTtl: 900 });
 
-  // Record the verified purchase to the ledger.
   await recordPurchase(env, {
     invoice: provided,
     amountUSDC: PRICE_USDC,
-    resource: "/premium",
+    resource,
     agent: (req.headers.get("x-agent") || "").slice(0, 44),
     agentName: (req.headers.get("x-agent-name") || "").slice(0, 40),
     ts: Date.now(),
   });
 
   return json({
-    resource: "/premium",
-    data: { insight: "On Arc, USDC is the native token — settlement is final in ~1s, which is exactly what per-call agent payments need.", generatedAt: new Date().toISOString() },
+    resource,
+    data,
     payment: { invoice: provided, amountUSDC: PRICE_USDC, settledInUSDC: true, chain: "arc-testnet" },
   });
+}
+
+const demoPayload = async () => ({
+  insight: "On Arc, USDC is the native token — settlement is final in ~1s, which is exactly what per-call agent payments need.",
+  generatedAt: new Date().toISOString(),
+});
+
+// ---------------------------------------------------------------------------
+// /fairvalue — what an agent actually pays for.
+//
+// Short-dated "Up or Down" prediction markets are priced against live spot with
+// a zero-drift lognormal model: the probability that the close exceeds the open
+// is Phi( ln(spot/open) / (sigma * sqrt(minutes_left)) ), with sigma estimated
+// from the last 60 one-minute log returns. The output is not the odds — anyone
+// can read those off the book — it is the gap between the model and the book.
+// ---------------------------------------------------------------------------
+
+// Question prefix as Polymarket writes it -> Binance symbol.
+const ASSETS = {
+  Bitcoin: "BTCUSDT", Ethereum: "ETHUSDT", Solana: "SOLUSDT",
+  XRP: "XRPUSDT", Dogecoin: "DOGEUSDT", BNB: "BNBUSDT",
+};
+const EDGE_THRESHOLD = 0.05; // 5 cents
+const MIN_SECONDS_LEFT = 50; // below this the quote is stale before you can act
+
+// Spot comes from Bybit, not Binance: Binance answers 403 to Cloudflare Worker
+// egress IPs (both api.binance.com and the data mirror), while Bybit, Coinbase
+// and Kraken all answer 200. Bybit is the closest match — same USDT pairs for
+// every asset these markets cover.
+//
+// One call per symbol gives both the history and the price: Bybit returns the
+// in-progress candle first, so its close is the live spot.
+async function bybitCandles(symbol) {
+  const u = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=1&limit=90`;
+  const r = await fetch(u, { cf: { cacheTtl: 5 } });
+  if (!r.ok) throw new Error(`bybit ${symbol} -> ${r.status}`);
+  const j = await r.json();
+  const list = j?.result?.list;
+  if (!Array.isArray(list) || !list.length) throw new Error(`bybit ${symbol} -> ${j?.retMsg || "no data"}`);
+  // Bybit lists newest-first; we want oldest-first.
+  return list
+    .map((c) => ({ openTime: Number(c[0]), open: Number(c[1]), close: Number(c[4]) }))
+    .sort((a, b) => a.openTime - b.openTime);
+}
+
+// The period this market covers, in minutes, read off the question text
+// ("… - July 30, 11:15PM-11:20PM ET" -> 5).
+//
+// This has to come from the question. `eventStartTime` is NOT the period open:
+// consecutive 11:15-11:20 and 11:20-11:25 markets carry the same value, so
+// using it prices every period against the same stale candle.
+function periodMinutes(q) {
+  const m = (q || "").match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return null;
+  const to24 = (h, ap) => (Number(h) % 12) + (/pm/i.test(ap) ? 12 : 0);
+  const a = to24(m[1], m[3]) * 60 + Number(m[2]);
+  let b = to24(m[4], m[6]) * 60 + Number(m[5]);
+  if (b <= a) b += 1440; // period crosses midnight
+  return b - a;
+}
+
+// Abramowitz-Stegun 7.1.26 — enough precision for a pricing signal.
+function normCdf(x) {
+  const s = x < 0 ? -1 : 1, z = Math.abs(x) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * z);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
+  return 0.5 * (1 + s * y);
+}
+
+// Per-minute stdev of log returns over the candle closes.
+function sigmaFrom(closes) {
+  const r = [];
+  for (let i = 1; i < closes.length; i++) r.push(Math.log(closes[i] / closes[i - 1]));
+  if (r.length < 2) return null;
+  const m = r.reduce((a, b) => a + b, 0) / r.length;
+  return Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1));
+}
+
+// Polymarket leaves hundreds of dead 2025 markets flagged closed=false, so
+// sorting by endDate ascending never reaches today. end_date_min is what makes
+// this query return live markets at all. We only look 30 minutes out — beyond
+// that the market isn't short-dated enough for this model to say anything.
+async function liveUpDownMarkets() {
+  const now = new Date(), max = new Date(Date.now() + 1800e3);
+  const u = "https://gamma-api.polymarket.com/markets?closed=false&active=true"
+    + `&end_date_min=${now.toISOString()}&end_date_max=${max.toISOString()}`
+    + "&order=endDate&ascending=true&limit=100";
+  const r = await fetch(u, { cf: { cacheTtl: 5 } });
+  if (!r.ok) throw new Error(`gamma -> ${r.status}`);
+  const all = await r.json();
+  return (Array.isArray(all) ? all : []).filter((m) => /Up or Down/i.test(m.question || "") && m.clobTokenIds);
+}
+
+// Live order book, in one batched request.
+//
+// Gamma's `bestBid`/`bestAsk` fields cannot be used for this: measured against
+// the book they are simply wrong (a market quoting 0.130/0.131 on the CLOB came
+// back as 0.03/0.04 from Gamma), and `outcomePrices` lags. Pricing a signal off
+// either would manufacture double-digit "edges" that do not exist. The CLOB is
+// the only source that matches what a taker would actually get filled at.
+async function clobPrices(markets) {
+  const yesToken = new Map();
+  const reqs = [];
+  for (const m of markets) {
+    let t;
+    try { t = JSON.parse(m.clobTokenIds)[0]; } catch { continue; }
+    if (!t) continue;
+    yesToken.set(String(m.id), t);
+    reqs.push({ token_id: t, side: "BUY" }, { token_id: t, side: "SELL" });
+  }
+  if (!reqs.length) return { yesToken, prices: {} };
+
+  const r = await fetch("https://clob.polymarket.com/prices", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(reqs),
+  });
+  if (!r.ok) throw new Error(`clob -> ${r.status}`);
+  return { yesToken, prices: await r.json() };
+}
+
+let fvCache = { at: 0, body: null }; // per-isolate, ~10s — keeps a burst of paid calls cheap
+
+async function fairValue() {
+  if (fvCache.body && Date.now() - fvCache.at < 10_000) {
+    return { ...fvCache.body, cachedForMs: Date.now() - fvCache.at };
+  }
+
+  const markets = await liveUpDownMarkets();
+  const wanted = [...new Set(markets.map((m) => ASSETS[(m.question || "").split(" Up or Down")[0]]).filter(Boolean))];
+
+  if (!wanted.length) {
+    return {
+      model: "lognormal zero-drift: P(close>open) = Phi(ln(spot/open)/(sigma*sqrt(t)))",
+      markets: [], note: "No live Up/Down markets in the next 30 minutes.", generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const [book, ...candleSets] = await Promise.all([
+    clobPrices(markets),
+    ...wanted.map((s) => bybitCandles(s)),
+  ]);
+
+  const spot = {}, sigma = {}, candles = {};
+  wanted.forEach((s, i) => {
+    candles[s] = candleSets[i];
+    spot[s] = candles[s][candles[s].length - 1].close; // in-progress candle = live price
+    sigma[s] = sigmaFrom(candles[s].map((c) => c.close));
+  });
+
+  const now = Date.now();
+  const rows = [];
+  for (const m of markets) {
+    const sym = ASSETS[(m.question || "").split(" Up or Down")[0]];
+    if (!sym || !spot[sym] || !sigma[sym]) continue;
+
+    const endMs = new Date(m.endDate).getTime();
+    const durMin = periodMinutes(m.question);
+    if (!durMin) continue;
+    const startMs = endMs - durMin * 60000;
+    const secondsLeft = Math.round((endMs - now) / 1000);
+    const minutesLeft = (endMs - now) / 60000;
+    if (!(minutesLeft > 0)) continue;
+
+    // A period that hasn't opened yet has no reference price, so under a
+    // zero-drift model its fair value is exactly 0.5 — pricing it off the latest
+    // candle instead would invent an edge out of an open that doesn't exist.
+    const pending = startMs > now;
+    const c = pending ? null : candles[sym].filter((x) => x.openTime <= startMs).pop();
+    if (!pending && !c) continue;
+
+    const fair = pending ? 0.5 : normCdf(Math.log(spot[sym] / c.open) / (sigma[sym] * Math.sqrt(minutesLeft)));
+
+    // The CLOB returns the best resting order on each side: side=BUY is the
+    // best bid, side=SELL is the best ask. (Verified against a book quoting
+    // 0.130 bid / 0.131 ask.)
+    const px = book.prices[book.yesToken.get(String(m.id))] || {};
+    const bid = Number(px.BUY), ask = Number(px.SELL);
+    const edgeYes = Number.isFinite(ask) ? fair - ask : null;   // buy YES if the book is under the model
+    const edgeNo = Number.isFinite(bid) ? bid - fair : null;    // buy NO if the book is over it
+
+    let signal = "WAIT", edge = 0;
+    if (secondsLeft >= MIN_SECONDS_LEFT) {
+      if (edgeYes !== null && edgeYes >= EDGE_THRESHOLD) { signal = "BUY_YES"; edge = edgeYes; }
+      else if (edgeNo !== null && edgeNo >= EDGE_THRESHOLD) { signal = "BUY_NO"; edge = edgeNo; }
+      else edge = Math.max(edgeYes ?? -1, edgeNo ?? -1);
+    }
+
+    rows.push({
+      market: m.question, id: String(m.id), asset: sym,
+      status: pending ? "pending" : "live",
+      periodOpen: c ? c.open : null, spot: Number(spot[sym].toFixed(8)),
+      sigmaPerMin: Number(sigma[sym].toFixed(8)),
+      minutesLeft: Number(minutesLeft.toFixed(2)), secondsLeft,
+      fairValue: Number(fair.toFixed(4)),
+      bestBid: Number.isFinite(bid) ? bid : null,
+      bestAsk: Number.isFinite(ask) ? ask : null,
+      edge: Number(edge.toFixed(4)), signal,
+    });
+  }
+
+  rows.sort((a, b) => b.edge - a.edge);
+  const body = {
+    model: "lognormal zero-drift: P(close>open) = Phi(ln(spot/open)/(sigma*sqrt(t)))",
+    sigmaEstimator: "stdev of the last 60-90 one-minute log returns",
+    signalRule: `|edge| >= ${EDGE_THRESHOLD} and >= ${MIN_SECONDS_LEFT}s remaining`,
+    sources: ["bybit:spot 1m klines", "polymarket:gamma (market discovery)", "polymarket:clob (live book)"],
+    priceSource: "CLOB order book — Gamma's bestBid/bestAsk do not match the book and are not used",
+    counts: { markets: rows.length, signals: rows.filter((r) => r.signal !== "WAIT").length },
+    markets: rows,
+    disclaimer: "Model output, not investment advice. A simple model runs roughly break-even against professional market makers.",
+    generatedAt: new Date().toISOString(),
+  };
+  fvCache = { at: Date.now(), body };
+  return body;
 }
 
 async function verifyOnChain(invoiceId, service, priceWei) {

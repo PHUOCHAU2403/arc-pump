@@ -42,6 +42,56 @@ tags:
     description: Free, keyless endpoints.
 
 paths:
+  /fairvalue:
+    get:
+      tags: [paid]
+      summary: Live fair-value and mispricing signal for short-dated crypto prediction markets
+      description: |
+        Prices every live Polymarket "Up or Down" market ending in the next 30 minutes
+        against live spot, and returns the gap between the model and the order book.
+
+        The model is zero-drift lognormal: the probability that the period closes above
+        the period open is `Phi( ln(spot/open) / (sigma * sqrt(minutes_left)) )`, with
+        `sigma` estimated from the last 60-90 one-minute log returns. A market whose
+        period has not opened yet has no reference price, so its fair value is exactly
+        0.5 and it is returned with `status: pending`.
+
+        Prices come from the Polymarket CLOB order book. Gamma's `bestBid`/`bestAsk`
+        fields do not match the book — a market quoting 0.130/0.131 on the CLOB returns
+        0.03/0.04 from Gamma — and are not used.
+
+        Spot comes from Bybit, because Binance returns 403 to Cloudflare Worker egress.
+
+        Payment flow is identical to `/premium`.
+      operationId: getFairValue
+      parameters:
+        - name: invoice
+          in: query
+          required: false
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
+      responses:
+        '200':
+          description: Payment verified. Signal served (invoice now spent).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource: { type: string, example: '/fairvalue' }
+                  data:     { $ref: '#/components/schemas/FairValue' }
+                  payment:  { type: object }
+        '402':
+          description: Payment required.
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64-encoded x402 v2 payment requirements.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentRequired' }
+        '400': { description: Unknown, expired, or wrong-resource invoice }
+        '409': { description: Invoice already used }
+
   /premium:
     get:
       tags: [paid]
@@ -174,6 +224,41 @@ components:
             calls:     { type: integer }
             usdc:      { type: string }
             agents:    { type: integer }
+
+    FairValue:
+      type: object
+      properties:
+        model:         { type: string, example: 'lognormal zero-drift: P(close>open) = Phi(ln(spot/open)/(sigma*sqrt(t)))' }
+        sigmaEstimator:{ type: string }
+        signalRule:    { type: string, example: '|edge| >= 0.05 and >= 50s remaining' }
+        sources:       { type: array, items: { type: string } }
+        priceSource:   { type: string }
+        counts:
+          type: object
+          properties:
+            markets: { type: integer }
+            signals: { type: integer }
+        markets:
+          type: array
+          items:
+            type: object
+            properties:
+              market:      { type: string, example: 'Bitcoin Up or Down - July 30, 11:20PM-11:25PM ET' }
+              id:          { type: string }
+              asset:       { type: string, example: 'BTCUSDT' }
+              status:      { type: string, enum: [live, pending] }
+              periodOpen:  { type: [number, 'null'], description: Null while the period has not opened }
+              spot:        { type: number }
+              sigmaPerMin: { type: number }
+              minutesLeft: { type: number }
+              secondsLeft: { type: integer }
+              fairValue:   { type: number, description: Model probability that the period closes up, 0-1 }
+              bestBid:     { type: [number, 'null'], description: CLOB best bid on YES }
+              bestAsk:     { type: [number, 'null'], description: CLOB best ask on YES }
+              edge:        { type: number, description: Signed gap between model and book, in probability units }
+              signal:      { type: string, enum: [BUY_YES, BUY_NO, WAIT] }
+        disclaimer:  { type: string }
+        generatedAt: { type: string, format: date-time }
 
     Error:
       type: object
