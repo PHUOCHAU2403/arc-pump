@@ -1,0 +1,198 @@
+openapi: 3.1.0
+
+info:
+  title: Arc Pump — pay-per-call agent service
+  version: 1.0.0
+  description: |
+    A pay-per-call HTTP service for autonomous AI agents, settled in native USDC
+    on Arc (Circle's L1, chain 5042002).
+
+    Payment follows the x402 pattern: an unpaid request returns `402 Payment
+    Required` with an invoice; the agent settles that invoice on-chain; the same
+    request retried with the invoice id returns `200` with the resource.
+
+    **Why a settlement contract.** On Arc, USDC is the *native* token, so a plain
+    value transfer carries no memo and cannot be tied to an invoice. Payment
+    therefore goes through a small non-custodial `PaymentRouter`, which binds each
+    payment to both the invoice id and the recipient so the service can verify it
+    in a single `eth_call`. The router forwards funds immediately and never
+    custodies them.
+
+    **x402 discovery.** Every `402` also carries a standard x402 v2
+    `PAYMENT-REQUIRED` header (base64 JSON). The advertised scheme is
+    `arc-router-v1` rather than `exact`, because `exact` settles an EIP-3009
+    signed authorization and native USDC has nothing to authorize against. A
+    standard x402 client can therefore read the terms and skip cleanly instead of
+    attempting a payment that could not succeed.
+  contact:
+    name: Nguyen Phuoc Hau
+    email: sieusayza@gmail.com
+    url: https://arcpump.com/pay
+  license:
+    name: MIT
+
+servers:
+  - url: https://agentpay-service.arcpump2403.workers.dev
+    description: Production (Arc Testnet settlement)
+
+tags:
+  - name: paid
+    description: Endpoints that require an on-chain USDC payment.
+  - name: public
+    description: Free, keyless endpoints.
+
+paths:
+  /premium:
+    get:
+      tags: [paid]
+      summary: Fetch the paid resource
+      description: |
+        Call without `invoice` to receive a `402` and an invoice. Settle it
+        on-chain by calling `PaymentRouter.pay(invoiceId, service)` with the quoted
+        amount as native USDC value, then call again with `?invoice=<id>`.
+
+        Each invoice is single-use and expires after 900 seconds.
+      operationId: getPremium
+      parameters:
+        - name: invoice
+          in: query
+          required: false
+          description: Invoice id (bytes32 hex) returned by a previous 402.
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
+        - name: x-payment
+          in: header
+          required: false
+          description: Alternative to the `invoice` query parameter.
+          schema: { type: string, pattern: '^0x[0-9a-fA-F]{64}$' }
+        - name: x-agent
+          in: header
+          required: false
+          description: Optional paying agent address, recorded to the public ledger.
+          schema: { type: string }
+        - name: x-agent-name
+          in: header
+          required: false
+          description: Optional human-readable agent label for the ledger.
+          schema: { type: string, maxLength: 40 }
+      responses:
+        '200':
+          description: Payment verified on-chain. Resource served (invoice now spent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PremiumResponse' }
+        '400':
+          description: Unknown or expired invoice.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '402':
+          description: |
+            Payment required — either no invoice was supplied (a new one is issued)
+            or the supplied invoice is not yet paid on-chain.
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64-encoded x402 v2 payment requirements.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentRequired' }
+        '409':
+          description: Invoice already used. Invoices are single-use.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /ledger:
+    get:
+      tags: [public]
+      summary: Public ledger of verified paid calls
+      description: Every payment this service has verified on-chain, newest first. Free.
+      operationId: getLedger
+      responses:
+        '200':
+          description: Ledger and aggregate stats.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ledger' }
+
+components:
+  schemas:
+    Invoice:
+      type: object
+      required: [id, amount, amountUSDC, router, service]
+      properties:
+        id:        { type: string, description: bytes32 invoice id, example: '0xcfa7e91c…' }
+        amount:    { type: string, description: Amount in wei of native USDC (18 decimals), example: '10000000000000000' }
+        amountUSDC:{ type: string, example: '0.01' }
+        router:    { type: string, description: PaymentRouter contract, example: '0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff' }
+        service:   { type: string, description: Payee — must match the router's recorded recipient, example: '0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e' }
+        resource:  { type: string, example: '/premium' }
+        chain:     { type: string, example: 'arc-testnet' }
+        expiresInSec: { type: integer, example: 900 }
+
+    PaymentRequired:
+      type: object
+      properties:
+        error:   { type: string, example: 'payment required' }
+        invoice: { $ref: '#/components/schemas/Invoice' }
+        how:     { type: string, description: Human-readable settlement instruction. }
+
+    PremiumResponse:
+      type: object
+      properties:
+        resource: { type: string, example: '/premium' }
+        data:
+          type: object
+          properties:
+            insight:     { type: string }
+            generatedAt: { type: string, format: date-time }
+        payment:
+          type: object
+          properties:
+            invoice:       { type: string }
+            amountUSDC:    { type: string, example: '0.01' }
+            settledInUSDC: { type: boolean, example: true }
+            chain:         { type: string, example: 'arc-testnet' }
+
+    Ledger:
+      type: object
+      properties:
+        purchases:
+          type: array
+          items:
+            type: object
+            properties:
+              invoice:    { type: string }
+              amountUSDC: { type: string }
+              resource:   { type: string }
+              agent:      { type: string }
+              agentName:  { type: string }
+              ts:         { type: integer, description: Unix milliseconds }
+        stats:
+          type: object
+          properties:
+            calls:     { type: integer }
+            usdc:      { type: string }
+            agents:    { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error:   { type: string }
+        invoice: { type: string }
+
+x-payment:
+  protocol: x402
+  version: 2
+  scheme: arc-router-v1
+  network: eip155:5042002
+  networkName: Arc Testnet
+  asset: native USDC (18 decimals)
+  pricePerCall: '0.01'
+  payTo: '0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e'
+  settlementContract: '0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff'
+  contractFunctions:
+    pay: 'pay(bytes32 invoiceId, address payable service) payable'
+    verify: 'verify(bytes32 invoiceId, address service, uint256 minAmount) view returns (bool)'
+  explorer: 'https://testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff'
+  custody: none — the router forwards value to the payee in the same transaction

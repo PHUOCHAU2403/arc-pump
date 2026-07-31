@@ -16,10 +16,54 @@ const PRICE_WEI = "10000000000000000"; // 0.01 USDC (native, 18 dec)
 const PRICE_USDC = "0.01";
 const VERIFY_SELECTOR = "0x3ab5b633"; // verify(bytes32,address,uint256)
 
+// x402 (v2) discovery. We advertise our terms in the standard `PAYMENT-REQUIRED`
+// header so any x402 client can read the price, chain and payee without knowing
+// this service. We do NOT claim the `exact` scheme: that settles an EIP-3009
+// signed authorization, and on Arc USDC is the *native* token — there is nothing
+// to sign an authorization against, which is why payment goes through the router
+// instead. Declaring our own scheme means a standard client skips us cleanly
+// rather than attempting a payment that could never succeed.
+const NETWORK = "eip155:5042002"; // Arc testnet
+const SCHEME = "arc-router-v1";
+const NATIVE_ASSET = "0x0000000000000000000000000000000000000000"; // native USDC has no ERC-20 address
+const SERVICE_URL = "https://agentpay-service.arcpump2403.workers.dev/premium";
+
+const paymentRequirements = (invoiceId) => ({
+  x402Version: 2,
+  error: "Payment required",
+  resource: { url: SERVICE_URL, description: "Pay-per-call resource settled in native USDC on Arc.", mimeType: "application/json" },
+  accepts: [{
+    scheme: SCHEME,
+    network: NETWORK,
+    amount: PRICE_WEI,
+    asset: NATIVE_ASSET,
+    payTo: SERVICE,
+    maxTimeoutSeconds: 900,
+    extra: {
+      name: "USDC", decimals: 18, native: true, router: ROUTER, invoiceId,
+      pay: "router.pay(bytes32 invoiceId, address service) payable",
+      verify: "router.verify(bytes32,address,uint256) view returns (bool)",
+      retry: `${SERVICE_URL}?invoice=${invoiceId}`,
+    },
+  }],
+});
+
+const b64 = (o) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o))));
+
+// A 402 that carries both our own JSON body (unchanged, so existing clients keep
+// working) and the standard x402 header.
+const json402 = (body, invoiceId) => {
+  const r = json(body, 402);
+  r.headers.set("PAYMENT-REQUIRED", b64(paymentRequirements(invoiceId)));
+  return r;
+};
+
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
   "access-control-allow-headers": "content-type,x-payment,x-agent,x-agent-name",
+  // Browsers can't read a custom header cross-origin unless it's exposed.
+  "access-control-expose-headers": "PAYMENT-REQUIRED",
 };
 const cors = (r) => { for (const [k, v] of Object.entries(CORS)) r.headers.set(k, v); return r; };
 const json = (o, status = 200) =>
@@ -49,11 +93,11 @@ async function premium(req, env, url) {
   if (!provided) {
     const id = "0x" + [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
     await env.INVOICES.put(id, JSON.stringify({ resource: "/premium", price: PRICE_WEI, served: false, ts: Date.now() }), { expirationTtl: 900 });
-    return json({
+    return json402({
       error: "payment required",
       invoice: { id, amount: PRICE_WEI, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE, resource: "/premium", chain: "arc-testnet", expiresInSec: 900 },
       how: `Call ${ROUTER}.pay(invoiceId, service) with ${PRICE_USDC} USDC, then retry GET /premium?invoice=${id}`,
-    }, 402);
+    }, id);
   }
 
   const inv = await env.INVOICES.get(provided, "json");
@@ -61,7 +105,7 @@ async function premium(req, env, url) {
   if (inv.served) return json({ error: "invoice already used", invoice: provided }, 409);
 
   const ok = await verifyOnChain(provided, SERVICE, inv.price);
-  if (!ok) return json({ error: "not paid yet", invoice: { id: provided, amount: inv.price, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE } }, 402);
+  if (!ok) return json402({ error: "not paid yet", invoice: { id: provided, amount: inv.price, amountUSDC: PRICE_USDC, router: ROUTER, service: SERVICE } }, provided);
 
   inv.served = true;
   await env.INVOICES.put(provided, JSON.stringify(inv), { expirationTtl: 900 });
