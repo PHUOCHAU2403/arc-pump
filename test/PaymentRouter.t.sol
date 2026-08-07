@@ -15,7 +15,7 @@ contract RejectingService {
 contract ReenteringService {
     PaymentRouter private immutable router;
     bytes32 private immutable invoiceId;
-    bool public reentryReverted;
+    bool public reentered;
 
     constructor(PaymentRouter _router, bytes32 _invoiceId) {
         router = _router;
@@ -23,12 +23,10 @@ contract ReenteringService {
     }
 
     receive() external payable {
-        // Re-enter with the same invoice id. Effects-before-interaction must make this fail.
-        try router.pay{value: 0.1 ether}(invoiceId, payable(address(this))) {
-            reentryReverted = false;
-        } catch {
-            reentryReverted = true;
-        }
+        // Only re-enter on the first pass, otherwise this recurses until out of gas.
+        if (reentered) return;
+        reentered = true;
+        router.pay{value: 0.1 ether}(invoiceId, payable(address(this)));
     }
 }
 
@@ -63,12 +61,12 @@ contract PaymentRouterTest is Test {
         assertEq(address(router).balance, 0, "router must never custody funds");
     }
 
-    function test_pay_recordsAmountAndRecipient() public {
+    function test_pay_recordsAmountAgainstInvoiceAndRecipient() public {
         vm.prank(agent);
         router.pay{value: 2.5 ether}(INVOICE, service);
 
-        assertEq(router.paidAmount(INVOICE), 2.5 ether);
-        assertEq(router.paidTo(INVOICE), service);
+        assertEq(router.paidAmount(INVOICE, service), 2.5 ether);
+        assertEq(router.paidAmount(INVOICE, address(0xBEEF)), 0, "another recipient's slot is untouched");
     }
 
     function test_pay_emitsPaidEvent() public {
@@ -88,10 +86,68 @@ contract PaymentRouterTest is Test {
         router.pay{value: 3 ether}(second, other);
         vm.stopPrank();
 
-        assertEq(router.paidAmount(INVOICE), 1 ether);
-        assertEq(router.paidTo(INVOICE), service);
-        assertEq(router.paidAmount(second), 3 ether);
-        assertEq(router.paidTo(second), other);
+        assertEq(router.paidAmount(INVOICE, service), 1 ether);
+        assertEq(router.paidAmount(second, other), 3 ether);
+    }
+
+    function test_slotOf_isDistinctPerRecipient() public view {
+        assertTrue(router.slotOf(INVOICE, service) != router.slotOf(INVOICE, address(0xBEEF)));
+        assertTrue(router.slotOf(INVOICE, service) != router.slotOf(keccak256("other"), service));
+    }
+
+    // ---------------------------------------------------------------- the griefing attack
+
+    /// @dev THE regression test for this contract.
+    ///
+    /// Invoice ids travel in the clear inside the 402 challenge, so a stranger can always read
+    /// one. Under the previous design a stranger paying one wei to their own address wrote the
+    /// invoice's only slot, and the real agent's payment then reverted with `AlreadyPaid`
+    /// forever. One wei took the invoice — and, repeated, the whole service — offline.
+    function test_pay_strangerPayingElsewhereCannotBrickTheInvoice() public {
+        address stranger = address(0x1234);
+        address payable attackerWallet = payable(address(0xBAD));
+        vm.deal(stranger, 1 ether);
+
+        // The attack: one wei against the victim's invoice id, routed to the attacker.
+        vm.prank(stranger);
+        router.pay{value: 1 wei}(INVOICE, attackerWallet);
+
+        // The honest agent pays normally afterwards. This must still work.
+        vm.prank(agent);
+        router.pay{value: 1 ether}(INVOICE, service);
+
+        assertTrue(router.verify(INVOICE, service, 1 ether), "the invoice must remain payable and verifiable");
+        assertEq(router.paidAmount(INVOICE, service), 1 ether, "the attacker's wei must not land in the service's slot");
+        assertEq(attackerWallet.balance, 1 wei, "the attacker only ever moved their own money");
+    }
+
+    /// @dev The harder variant: the spoiler pays the *real* recipient, hitting the same slot.
+    /// Accumulation turns the attack into a donation instead of a lock.
+    function test_pay_dustToTheRealServiceDoesNotBlockTheRealPayment() public {
+        address stranger = address(0x1234);
+        vm.deal(stranger, 1 ether);
+
+        vm.prank(stranger);
+        router.pay{value: 1 wei}(INVOICE, service);
+
+        assertFalse(router.verify(INVOICE, service, 1 ether), "dust alone must not unlock the resource");
+
+        vm.prank(agent);
+        router.pay{value: 1 ether}(INVOICE, service);
+
+        assertTrue(router.verify(INVOICE, service, 1 ether), "the honest payment tops the slot up");
+        assertEq(router.paidAmount(INVOICE, service), 1 ether + 1 wei);
+    }
+
+    /// @dev Underpayment is still rejected at the point that matters — verification.
+    function test_verify_falseUntilTheThresholdIsActuallyReached() public {
+        vm.startPrank(agent);
+        router.pay{value: 0.4 ether}(INVOICE, service);
+        assertFalse(router.verify(INVOICE, service, 1 ether));
+
+        router.pay{value: 0.6 ether}(INVOICE, service);
+        assertTrue(router.verify(INVOICE, service, 1 ether), "partial payments accumulate to the threshold");
+        vm.stopPrank();
     }
 
     // ---------------------------------------------------------------- pay: reverts
@@ -102,26 +158,12 @@ contract PaymentRouterTest is Test {
         router.pay{value: 0}(INVOICE, service);
     }
 
-    function test_pay_revertsOnDoublePay() public {
-        vm.startPrank(agent);
-        router.pay{value: 1 ether}(INVOICE, service);
-
-        vm.expectRevert(PaymentRouter.AlreadyPaid.selector);
-        router.pay{value: 1 ether}(INVOICE, service);
-        vm.stopPrank();
-    }
-
-    /// @dev Double-pay is blocked even when a different payer targets a different service.
-    function test_pay_revertsOnDoublePay_differentPayerAndService() public {
-        address stranger = address(0x1234);
-        vm.deal(stranger, 10 ether);
-
+    /// @dev Paying address(0) burns the value. Recording it as paid would let `verify` authorise
+    /// a response that nobody was actually paid for.
+    function test_pay_revertsOnZeroService() public {
         vm.prank(agent);
-        router.pay{value: 1 ether}(INVOICE, service);
-
-        vm.prank(stranger);
-        vm.expectRevert(PaymentRouter.AlreadyPaid.selector);
-        router.pay{value: 1 ether}(INVOICE, payable(address(0xBEEF)));
+        vm.expectRevert(PaymentRouter.ZeroService.selector);
+        router.pay{value: 1 ether}(INVOICE, payable(address(0)));
     }
 
     function test_pay_revertsWhenServiceRejectsTransfer() public {
@@ -140,26 +182,34 @@ contract PaymentRouterTest is Test {
         vm.expectRevert(PaymentRouter.TransferFailed.selector);
         router.pay{value: 1 ether}(INVOICE, payable(address(rejecting)));
 
-        assertEq(router.paidAmount(INVOICE), 0, "state must roll back after a failed transfer");
-        assertEq(router.paidTo(INVOICE), address(0));
+        assertEq(router.paidAmount(INVOICE, address(rejecting)), 0, "state must roll back after a failed transfer");
 
-        // The same invoice can now be paid to a working service — it is not bricked.
         vm.prank(agent);
         router.pay{value: 1 ether}(INVOICE, service);
-        assertEq(router.paidAmount(INVOICE), 1 ether);
+        assertEq(router.paidAmount(INVOICE, service), 1 ether);
     }
 
     // ---------------------------------------------------------------- reentrancy
 
-    function test_pay_reentrancyOnSameInvoiceIsBlocked() public {
+    /// @dev Re-entry is no longer rejected, and does not need to be. Effects land before the
+    /// call, and a re-entrant payer can only raise a total by sending that value itself — there
+    /// is no path to credit without payment, and the router still ends with a zero balance.
+    function test_pay_reentrancyCannotCreditWithoutPaying() public {
         ReenteringService attacker = new ReenteringService(router, INVOICE);
         vm.deal(address(attacker), 10 ether);
+        uint256 attackerBefore = address(attacker).balance;
 
         vm.prank(agent);
         router.pay{value: 1 ether}(INVOICE, payable(address(attacker)));
 
-        assertTrue(attacker.reentryReverted(), "re-entrant pay on the same invoice must revert");
-        assertEq(router.paidAmount(INVOICE), 1 ether, "amount must reflect the single legitimate payment");
+        assertTrue(attacker.reentered(), "the re-entrant path should have been exercised");
+        assertEq(
+            router.paidAmount(INVOICE, address(attacker)),
+            1.1 ether,
+            "total must equal exactly what was actually sent: 1 from the agent, 0.1 from itself"
+        );
+        assertEq(address(attacker).balance, attackerBefore + 1 ether, "the attacker gained only the agent's payment");
+        assertEq(address(router).balance, 0, "router must never custody funds");
     }
 
     // ---------------------------------------------------------------- verify
@@ -207,8 +257,7 @@ contract PaymentRouterTest is Test {
         router.pay{value: amount}(invoiceId, payable(address(payee)));
 
         assertEq(address(payee).balance, amount);
-        assertEq(router.paidAmount(invoiceId), amount);
-        assertEq(router.paidTo(invoiceId), address(payee));
+        assertEq(router.paidAmount(invoiceId, address(payee)), amount);
         assertTrue(router.verify(invoiceId, address(payee), amount));
         assertEq(address(router).balance, 0);
     }
@@ -222,5 +271,24 @@ contract PaymentRouterTest is Test {
         router.pay{value: paid}(INVOICE, payable(address(payee)));
 
         assertEq(router.verify(INVOICE, address(payee), minAmount), paid >= minAmount);
+    }
+
+    /// @dev No stranger, at any dust amount, against any recipient, can stop the honest payment
+    /// from verifying. This is the property the old design failed to hold.
+    function testFuzz_noStrangerCanBrickAnInvoice(uint96 dust, address spoiler, bytes32 invoiceId) public {
+        vm.assume(dust > 0);
+        // Above the precompile range: 0x01..0xff have no code yet reject value, which would
+        // fail the spoiler's own transfer and prove nothing about the property under test.
+        vm.assume(uint160(spoiler) > 0xff && spoiler.code.length == 0);
+        vm.assume(spoiler != service && spoiler != agent);
+
+        vm.deal(spoiler, dust);
+        vm.prank(spoiler);
+        router.pay{value: dust}(invoiceId, payable(spoiler));
+
+        vm.prank(agent);
+        router.pay{value: 1 ether}(invoiceId, service);
+
+        assertTrue(router.verify(invoiceId, service, 1 ether), "the honest payment must always verify");
     }
 }

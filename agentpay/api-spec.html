@@ -1,0 +1,166 @@
+<meta charset="utf-8">
+<title>Arc Pump — API Specification</title>
+<style>
+  :root{--ink:#14171a;--ink2:#3c4247;--ink3:#6c747a;--rule:#dde1e4;--acc:#0f7a5a;
+        --mono:"SF Mono",ui-monospace,Consolas,monospace;
+        --sans:Inter,-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font-family:var(--sans);font-size:10pt;line-height:1.5}
+  .p{max-width:820px;margin:0 auto;padding:38px 46px 46px}
+  header{border-bottom:1.5px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+  h1{margin:0;font-size:20pt;font-weight:650;letter-spacing:-.02em}
+  .sub{margin:5px 0 0;color:var(--ink2);font-size:10.5pt}
+  .meta{margin-top:9px;font-family:var(--mono);font-size:8.4pt;color:var(--ink3)}
+  h2{margin:22px 0 9px;font-size:8pt;font-weight:650;text-transform:uppercase;letter-spacing:.13em;
+     color:var(--ink3);border-bottom:.75px solid var(--rule);padding-bottom:4px}
+  h3{margin:14px 0 4px;font-size:11pt;font-weight:620}
+  p{margin:0 0 7px;color:var(--ink2);max-width:70ch}
+  code{font-family:var(--mono);font-size:.88em;background:#f4f6f7;padding:1px 4px;border-radius:2px}
+  pre{background:#f7f9fa;border:.75px solid var(--rule);border-radius:3px;padding:10px 12px;
+      font-family:var(--mono);font-size:8.1pt;line-height:1.45;overflow-x:auto;margin:7px 0 10px;
+      color:#22282c;white-space:pre-wrap;word-break:break-word}
+  table{width:100%;border-collapse:collapse;margin:6px 0 10px;font-size:9.2pt}
+  th{text-align:left;font-weight:640;padding:5px 8px 5px 0;border-bottom:1px solid var(--ink);color:var(--ink)}
+  td{padding:5px 8px 5px 0;border-bottom:.5px solid var(--rule);color:var(--ink2);vertical-align:top}
+  .m{font-family:var(--mono);font-size:8.6pt;color:var(--acc);white-space:nowrap}
+  .note{border-left:2px solid var(--acc);padding:2px 0 2px 12px;margin:10px 0;color:var(--ink2)}
+  ul{margin:5px 0 9px;padding-left:17px}li{margin-bottom:4px;color:var(--ink2)}
+  footer{margin-top:26px;padding-top:11px;border-top:.75px solid var(--rule);font-size:8.4pt;color:var(--ink3)}
+  @media print{@page{size:A4;margin:13mm}.p{max-width:none;margin:0;padding:0}
+    body{font-size:9.2pt}pre{font-size:7.4pt}h2{margin-top:16px}a{color:inherit!important}}
+</style>
+
+<div class="p">
+<header>
+  <h1>Arc Pump — API Specification</h1>
+  <p class="sub">Pay-per-call HTTP service for autonomous AI agents, settled in native USDC on Arc.</p>
+  <div class="meta">
+    OpenAPI 3.1 · v1.0.0 · Arc Testnet (eip155:5042002)<br>
+    https://agentpay-service.arcpump2403.workers.dev · Nguyen Phuoc Hau · sieusayza@gmail.com
+  </div>
+</header>
+
+<h2>Overview</h2>
+<p>Payment follows the x402 pattern. An unpaid request returns <code>402 Payment Required</code> with an invoice; the agent settles that invoice on-chain; the same request retried with the invoice id returns <code>200</code> with the resource. No API keys, no accounts, no human in the loop.</p>
+
+<div class="note">
+<b>Why a settlement contract.</b> On Arc, USDC is the <i>native</i> token, so a plain value transfer carries no memo and cannot be tied to an invoice. Payment therefore goes through a small non-custodial <code>PaymentRouter</code>, which binds each payment to both the invoice id <i>and</i> the recipient, so the service can verify it in a single <code>eth_call</code>. The router forwards funds in the same transaction and never custodies them.
+</div>
+
+<h2>Payment terms</h2>
+<table>
+  <tr><th style="width:180px">Field</th><th>Value</th></tr>
+  <tr><td>Protocol</td><td class="m">x402 v2</td></tr>
+  <tr><td>Scheme</td><td class="m">arc-router-v1</td></tr>
+  <tr><td>Network</td><td class="m">eip155:5042002 (Arc Testnet)</td></tr>
+  <tr><td>Asset</td><td>Native USDC, 18 decimals</td></tr>
+  <tr><td>Price per call</td><td class="m">0.01 USDC</td></tr>
+  <tr><td>Pay to</td><td class="m">0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e</td></tr>
+  <tr><td>Settlement contract</td><td class="m">0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff</td></tr>
+  <tr><td>Invoice lifetime</td><td>900 seconds, single-use</td></tr>
+  <tr><td>Custody</td><td>None — value forwarded to payee in the same transaction</td></tr>
+</table>
+
+<p><b>On the scheme name.</b> The advertised scheme is <code>arc-router-v1</code> rather than <code>exact</code>. <code>exact</code> settles an EIP-3009 signed authorization, and native USDC has nothing to authorize against. Declaring a distinct scheme lets a standard x402 client read the terms and skip cleanly, instead of attempting a payment that could not succeed.</p>
+
+<h2>Endpoints</h2>
+
+<h3>GET /fairvalue <span class="m">— paid, 0.01 USDC</span></h3>
+<p>Prices every live Polymarket "Up or Down" market ending in the next 30 minutes against live spot, and returns the gap between the model and the order book. Not the odds — anyone can read those off the book — the <i>mispricing</i>.</p>
+<p>Zero-drift lognormal: <code>fair = Φ( ln(spot/open) / (σ·√minutes_left) )</code>, with σ estimated from the last 60–90 one-minute log returns. A market whose period has not opened yet has no reference price, so its fair value is exactly 0.5 and it is returned as <code>status: pending</code> rather than priced off a stale candle.</p>
+<p>Each row returns <code>market, asset, status, periodOpen, spot, sigmaPerMin, minutesLeft, fairValue, bestBid, bestAsk, edge, signal</code>, sorted by edge. <code>signal</code> is <code>BUY_YES</code> / <code>BUY_NO</code> when the gap is at least 5 cents with 50s or more remaining, otherwise <code>WAIT</code>.</p>
+<div class="note">
+<b>On data sources — two corrections worth stating.</b> Prices come from the Polymarket <b>CLOB order book</b>. Gamma's <code>bestBid</code>/<code>bestAsk</code> fields do not match the book: a market quoting 0.130/0.131 on the CLOB returned 0.03/0.04 from Gamma, which would manufacture double-digit "edges" that do not exist. Spot comes from <b>Bybit</b>, because Binance answers 403 to Cloudflare Worker egress IPs.
+</div>
+
+<h3>GET /premium <span class="m">— paid, 0.01 USDC</span></h3>
+<p>Call without <code>invoice</code> to receive a 402 and an invoice. Settle it, then call again with <code>?invoice=&lt;id&gt;</code>. The invoice id may also be sent as the <code>x-payment</code> header. Optional <code>x-agent</code> and <code>x-agent-name</code> headers are recorded to the public ledger.</p>
+
+<table>
+  <tr><th style="width:70px">Status</th><th>Meaning</th></tr>
+  <tr><td class="m">200</td><td>Payment verified on-chain; resource served; invoice now spent</td></tr>
+  <tr><td class="m">402</td><td>No invoice supplied (a new one is issued), or supplied invoice not yet paid</td></tr>
+  <tr><td class="m">400</td><td>Unknown or expired invoice</td></tr>
+  <tr><td class="m">409</td><td>Invoice already used — invoices are single-use</td></tr>
+</table>
+
+<p>Every 402 also carries the standard x402 <code>PAYMENT-REQUIRED</code> response header (base64-encoded JSON), exposed via CORS:</p>
+<pre>HTTP/1.1 402 Payment Required
+PAYMENT-REQUIRED: &lt;base64 JSON&gt;
+access-control-expose-headers: PAYMENT-REQUIRED
+
+{
+  "x402Version": 2,
+  "error": "Payment required",
+  "resource": {
+    "url": "https://agentpay-service.arcpump2403.workers.dev/premium",
+    "description": "Pay-per-call resource settled in native USDC on Arc.",
+    "mimeType": "application/json"
+  },
+  "accepts": [{
+    "scheme": "arc-router-v1",
+    "network": "eip155:5042002",
+    "amount": "10000000000000000",
+    "asset": "0x0000000000000000000000000000000000000000",
+    "payTo": "0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e",
+    "maxTimeoutSeconds": 900,
+    "extra": {
+      "name": "USDC", "decimals": 18, "native": true,
+      "router": "0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff",
+      "invoiceId": "0x…",
+      "pay": "router.pay(bytes32 invoiceId, address service) payable",
+      "verify": "router.verify(bytes32,address,uint256) view returns (bool)",
+      "retry": "https://…/premium?invoice=0x…"
+    }
+  }]
+}</pre>
+
+<h3>GET /ledger <span class="m">— free</span></h3>
+<p>Public ledger of every payment this service has verified on-chain, newest first, with aggregate stats. Keyless. Returns <code>{ purchases[], stats }</code>.</p>
+
+<h2>Settlement contract</h2>
+<pre>function pay(bytes32 invoiceId, address payable service) external payable;
+    // Credits keccak256(invoiceId, service), forwards msg.value to `service`,
+    // emits Paid. Reverts on zero amount or a zero recipient.
+
+function paidAmount(bytes32 invoiceId, address service) view returns (uint256);
+    // Total credited so far for that (invoice, recipient) pair, in wei of
+    // native USDC — 18 decimals on Arc, not the 6 USDC uses as an ERC-20.
+
+function verify(bytes32 invoiceId, address service, uint256 minAmount)
+    external view returns (bool);
+    // One-call check a service makes before releasing its response:
+    // paidAmount(invoiceId, service) is non-zero and at least minAmount.</pre>
+
+<p><strong>Why payments are keyed by (invoice, recipient) and accumulate.</strong>
+Invoice ids travel in the clear inside the 402 challenge, so anyone can read one.
+Keying by invoice id alone — and rejecting any second payment — let a stranger send
+a single wei against someone else's invoice and make it permanently unpayable, for
+the price of gas. Keying by the pair means a payment aimed elsewhere cannot touch the
+real recipient's slot, and accumulating means dust sent to the right recipient is a
+donation rather than a lock. Repeat-payment protection belongs on the payer's side:
+call <code>verify</code> before paying.</p>
+<p>Deployed and verifiable at <code>testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff</code></p>
+
+<h2>Full flow</h2>
+<pre># 1 — unpaid request returns 402 + invoice
+curl -i https://agentpay-service.arcpump2403.workers.dev/premium
+
+# 2 — settle on Arc: router.pay(invoiceId, service) with 0.01 USDC as value
+
+# 3 — retry with the invoice id; verified on-chain, served once
+curl "https://agentpay-service.arcpump2403.workers.dev/premium?invoice=0x…"</pre>
+
+<h2>Notes for reviewers</h2>
+<ul>
+  <li><code>/fairvalue</code> is the product: live data, real model, proven end to end on-chain. <code>/premium</code> is kept only as the original demonstration endpoint and returns a placeholder payload.</li>
+  <li>The gate runs the data producer <i>before</i> burning the invoice, so if an upstream source is down the buyer keeps their paid invoice. This is not theoretical — it happened during build-out when Binance began refusing Worker egress, and the invoice paid before the outage was honoured after the fix.</li>
+  <li>The rail was built independently before Circle Gateway Nanopayments was found. The design converges on the same problem and the same chain; Gateway's batched EIP-3009 settlement scales further into sub-cent territory, which on-chain-per-call settlement cannot reach. Migration to Gateway Nanopayments is of interest.</li>
+  <li>An interactive demo, where a single click triggers a real on-chain payment, is at <code>arcpump.com/pay</code>.</li>
+</ul>
+
+<footer>
+Arc Pump · OpenAPI 3.1 machine-readable spec: github.com/PHUOCHAU2403/arc-pump — agentpay/service/openapi.yaml<br>
+Finalist, Encode Club × Remix AI Bootcamp for Real World Impact 2026.
+</footer>
+</div>
