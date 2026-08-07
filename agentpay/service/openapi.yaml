@@ -174,7 +174,7 @@ components:
         id:        { type: string, description: bytes32 invoice id, example: '0xcfa7e91c…' }
         amount:    { type: string, description: Amount in wei of native USDC (18 decimals), example: '10000000000000000' }
         amountUSDC:{ type: string, example: '0.01' }
-        router:    { type: string, description: PaymentRouter contract, example: '0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff' }
+        router:    { type: string, description: PaymentRouter contract, example: '0x8eB7e2A25C46938084d951985A5F87ad310A73Db' }
         service:   { type: string, description: Payee — must match the router's recorded recipient, example: '0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e' }
         resource:  { type: string, example: '/premium' }
         chain:     { type: string, example: 'arc-testnet' }
@@ -275,9 +275,9 @@ x-payment:
   asset: native USDC (18 decimals)
   pricePerCall: '0.01'
   payTo: '0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e'
-  settlementContract: '0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff'
+  settlementContract: '0x8eB7e2A25C46938084d951985A5F87ad310A73Db'
   contractFunctions:
     pay: 'pay(bytes32 invoiceId, address payable service) payable'
     verify: 'verify(bytes32 invoiceId, address service, uint256 minAmount) view returns (bool)'
-  explorer: 'https://testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff'
+  explorer: 'https://testnet.arcscan.app/address/0x8eB7e2A25C46938084d951985A5F87ad310A73Db'
   custody: none — the router forwards value to the payee in the same transaction

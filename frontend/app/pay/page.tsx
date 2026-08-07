@@ -32,7 +32,7 @@ export const metadata: Metadata = {
 
 const LEDGER_URL = "https://agentpay-service.arcpump2403.workers.dev/ledger";
 const SERVICE_URL = "https://agentpay-service.arcpump2403.workers.dev/premium";
-const ROUTER = "0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff";
+const ROUTER = "0x8eB7e2A25C46938084d951985A5F87ad310A73Db";
 const ARCSCAN = "https://testnet.arcscan.app";
 
 type Purchase = { invoice: string; amountUSDC: string; resource: string; agent?: string; agentName?: string; ts: number };

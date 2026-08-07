@@ -6,7 +6,7 @@ capped, settled and verified on-chain. No subscriptions, no API keys, no humans 
 - 🟢 **Live demo (interactive):** https://arcpump.com/pay — click **Run it** to watch a real
   AI agent pay 0.01 USDC on Arc to unlock a resource, with the on-chain transaction. Or
   connect a wallet and pay it yourself.
-- 📄 **PaymentRouter (Arc testnet):** [`0x42bCE0…28ff`](https://testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff)
+- 📄 **PaymentRouter (Arc testnet):** [`0x8eB7e2A2…73Db`](https://testnet.arcscan.app/address/0x8eB7e2A25C46938084d951985A5F87ad310A73Db)
 - 🔌 **Demo paid service:** https://agentpay-service.arcpump2403.workers.dev/premium
 
 ## The problem

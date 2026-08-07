@@ -56,7 +56,7 @@
   <tr><td>Asset</td><td>Native USDC, 18 decimals</td></tr>
   <tr><td>Price per call</td><td class="m">0.01 USDC</td></tr>
   <tr><td>Pay to</td><td class="m">0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e</td></tr>
-  <tr><td>Settlement contract</td><td class="m">0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff</td></tr>
+  <tr><td>Settlement contract</td><td class="m">0x8eB7e2A25C46938084d951985A5F87ad310A73Db</td></tr>
   <tr><td>Invoice lifetime</td><td>900 seconds, single-use</td></tr>
   <tr><td>Custody</td><td>None — value forwarded to payee in the same transaction</td></tr>
 </table>
@@ -106,7 +106,7 @@ access-control-expose-headers: PAYMENT-REQUIRED
     "maxTimeoutSeconds": 900,
     "extra": {
       "name": "USDC", "decimals": 18, "native": true,
-      "router": "0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff",
+      "router": "0x8eB7e2A25C46938084d951985A5F87ad310A73Db",
       "invoiceId": "0x…",
       "pay": "router.pay(bytes32 invoiceId, address service) payable",
       "verify": "router.verify(bytes32,address,uint256) view returns (bool)",
@@ -140,7 +140,7 @@ the price of gas. Keying by the pair means a payment aimed elsewhere cannot touc
 real recipient's slot, and accumulating means dust sent to the right recipient is a
 donation rather than a lock. Repeat-payment protection belongs on the payer's side:
 call <code>verify</code> before paying.</p>
-<p>Deployed and verifiable at <code>testnet.arcscan.app/address/0x42bCE0940b286b29A7bE50c3C7c89302A48E28ff</code></p>
+<p>Deployed and verifiable at <code>testnet.arcscan.app/address/0x8eB7e2A25C46938084d951985A5F87ad310A73Db</code></p>
 
 <h2>Full flow</h2>
 <pre># 1 — unpaid request returns 402 + invoice
