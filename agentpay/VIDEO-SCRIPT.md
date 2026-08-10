@@ -1,148 +1,118 @@
-# Arc Pump — kịch bản video demo
+# Kịch bản quay video demo — Arc Pump
 
 **Encode Programmable Money Hackathon · Checkpoint 3 · track Agentic Economy**
-Mục tiêu: **3 phút**. Tám cảnh. Mọi thứ trong đây đều đã kiểm chứng được — không có cảnh nào là slide suông.
+Mục tiêu **2 phút 50**. Sáu cảnh, **một trình duyệt duy nhất**, không dòng lệnh nào.
+Lời thoại đưa qua TTS — không cần tự đọc.
+
+> **Bản này thay bản cũ dùng terminal.** Lý do: terminal chỉ đọc được với người
+> đã viết code, mà khán giả Web3 quen dApp. Và `arcpump.com/pay` có sẵn nút
+> **Run it** chạy thanh toán thật trên chain — quay cái đó vừa dễ hiểu hơn vừa
+> là bằng chứng mạnh hơn một cửa sổ chữ.
 
 ---
 
-## Chuẩn bị trước khi bấm ghi
+## Chuẩn bị (5 phút trước khi bấm ghi)
 
-**Lời thoại: dùng TTS, đừng tự đọc.** Đúng cách cậu đã làm với `agent-dashboard/voiceover/` lần trước. Bảy đoạn `.mp3`, ghép vào bản dựng. Không có lý do gì phải nói tiếng Anh trực tiếp cho một video kỹ thuật, và giọng TTS đều đặn còn dễ nghe hơn giọng người đọc kịch bản lần đầu.
+**Mở một tab:** `https://arcpump.com/pay`
 
-**Mở sẵn bốn tab, đúng thứ tự này** — chuyển tab nhanh thì video mới gọn:
+Ẩn thanh bookmark, đóng tab thừa, tắt thông báo, phóng to **110–125%**.
+Quay **1920×1080**. Cuộn bằng bánh xe, đừng kéo thanh trượt.
 
-1. PowerShell, đã `cd D:/Code/arc-pump`, chữ phóng to (Ctrl + cuộn) để chữ đọc được ở 1080p
-2. `https://arcpump.com/pay`
-3. `https://testnet.arcscan.app/address/0x8eB7e2A25C46938084d951985A5F87ad310A73Db`
-4. VS Code mở `src/PaymentRouter.sol` và `test/PaymentRouter.t.sol`
-
-**Quay ở 1920×1080.** Ẩn bookmark bar, đóng hết tab thừa, tắt thông báo.
-
-**Một lần chạy thử toàn bộ trước khi ghi.** Endpoint `/demo-pay` có giới hạn tần suất; biết trước nó mất bao lâu thì lúc ghi không bị hụt nhịp.
+**Chạy thử nút Run it một lần trước khi ghi** — để biết nó mất bao lâu, và để
+cache ấm. Endpoint có giới hạn tần suất nên đừng bấm liên tục.
 
 ---
 
-## Cảnh 1 — Vấn đề (0:00 – 0:20)
+## Cảnh 1 — Vấn đề (0:00 – 0:25)
 
-**Hình:** trang `arcpump.com/pay`, đứng yên ở phần hero.
+**Hình:** đầu trang. Tiêu đề *"The payment rail for autonomous AI agents"*, chấm
+xanh **Live on Arc**, khối code `agent.ts`.
 
 **Lời:**
-> Autonomous agents are starting to buy things. Data, compute, API calls.
-> But every payment system we have was built for people: subscriptions,
-> API keys, a card at checkout. None of that fits a machine that makes one
-> call, once, with nobody watching.
+> Autonomous agents are starting to buy things — data, compute, API calls. But
+> every payment system we have was built for people: subscriptions, API keys, a
+> card at checkout.
+>
+> None of that fits a machine that makes one call, once, with nobody watching.
 
 ---
 
-## Cảnh 2 — Sản phẩm là gì (0:20 – 0:40)
+## Cảnh 2 — Trả tiền thật, một cú bấm (0:25 – 1:12)
 
-**Hình:** cuộn chậm qua ba bước Request / Pay / Unlock.
+**Hình:** cuộn tới khối **Playground**, bấm **Run it**. Để ba bước tự sáng lên
+theo thứ tự: Request → Pay → Unlock.
 
 **Lời:**
-> Arc Pump is a pay-per-call rail. An agent asks for a resource, gets a
-> price, pays it on Arc in USDC, and gets the resource. One payment, one
-> call. No account, no key, no human.
-> Everything you are about to see is running live. Nothing is mocked.
+> One click, and a real agent pays one cent of USDC on Arc.
+>
+> First it asks for the resource and gets four-oh-two, Payment Required, with an
+> invoice. That status code has been in the HTTP spec since nineteen ninety-seven
+> and almost nobody has ever used it — it is exactly what an agent needs.
+>
+> Then its wallet pays the invoice. This is a Circle Programmable Wallet, multi
+> party computation, so no private key sits on any server. The agent signs for
+> itself.
+>
+> Then the service checks the chain, and only then hands over the data.
+
+**⚠ Bước Pay mất 10–20 giây chờ xác nhận. ĐỪNG CẮT.** Chờ thật là một phần của
+bằng chứng — cắt đi trông như dựng sẵn.
 
 ---
 
-## Cảnh 3 — Hoá đơn thật (0:40 – 1:10)
+## Cảnh 3 — Kiểm trên chain (1:12 – 1:38)
 
-**Hình:** PowerShell. Gõ chậm, để người xem đọc kịp:
-
-```
-curl.exe -i https://agentpay-service.arcpump2403.workers.dev/premium
-```
-
-Khi ra kết quả, **tô sáng dòng `HTTP/1.1 402 Payment Required`**, rồi tô sáng header `PAYMENT-REQUIRED`.
+**Hình:** trong bước Pay đã hiện link **view tx ↗** — bấm vào, sang arcscan.
+Dừng ở trường **To**, chỉ vào địa chỉ router.
 
 **Lời:**
-> An unpaid request comes back four-oh-two. Payment Required. That status
-> code has been in the HTTP spec since nineteen ninety-seven and almost
-> nobody has ever used it. It is exactly what an agent needs.
-> The header carries the terms: the price, the invoice id, the contract to
-> pay, and the function to call. A machine can read this and act on it
-> without being told anything in advance.
-
-*(Ghi chú: nếu muốn cho thấy nội dung header đã giải mã, chèn text overlay phần JSON — đừng gõ thêm lệnh base64, sẽ làm loãng nhịp.)*
+> Here is that payment on the public explorer. It went through a small contract
+> called the PaymentRouter, and that contract exists for one reason.
+>
+> On Arc, USDC is the native token. That makes payments fast and final, but a
+> native transfer carries no memo — so there is nothing tying the money to an
+> invoice. Forty lines of Solidity fix that: every payment is bound to both the
+> invoice and the recipient, forwarded in the same transaction, never held.
+>
+> On any chain where USDC is an ERC-20, this contract would not be needed. Here
+> it is.
 
 ---
 
-## Cảnh 4 — Trả tiền thật (1:10 – 1:50)
+## Cảnh 4 — Nó không tiêu quá tay (1:38 – 2:10)
 
-**Hình:** sang tab `arcpump.com/pay`, cuộn tới ô Playground, bấm **Run it**. Để chạy trọn vẹn, ba bước tự sáng lên lần lượt.
+**Hình:** cuộn tới **Autonomous, never unbounded**. **Kéo hai thanh trượt** —
+per-call cap và total budget. Cho thấy con số lệnh gọi thay đổi, rồi kéo tới lúc
+nó chuyển sang trạng thái từ chối.
 
 **Lời:**
-> Now the same flow, from the browser. One click, and a real agent pays one
-> cent of USDC on Arc.
-> Request. Pay. Unlock.
-> The wallet signing this is a Circle Programmable Wallet — multi-party
-> computation, so no private key sits on any server. The agent signs for
-> itself, inside a per-call cap and a total budget it cannot exceed.
-
-**Nhịp:** bước 2 mất khoảng 10–20 giây chờ xác nhận. **Đừng cắt.** Chờ thật là một phần của bằng chứng — cắt đi trông như dựng.
+> Autonomy without limits is just a way to lose money quickly. Every agent runs
+> under a cap on each call and a budget it cannot exceed.
+>
+> Drag them, and you can see the point where the agent stops paying. That check
+> runs before the request goes out, never after.
 
 ---
 
-## Cảnh 5 — Hỏi chain, không hỏi dịch vụ (1:50 – 2:15)
+## Cảnh 5 — Có người khác đã trả (2:10 – 2:32)
 
-**Hình:** bấm link `view tx ↗` trong Playground → mở arcscan. Chỉ vào trường **To** = `0x8eB7e2A2…73Db`. Rồi quay lại PowerShell:
-
-```
-cast call 0x8eB7e2A25C46938084d951985A5F87ad310A73Db "verify(bytes32,address,uint256)(bool)" <invoiceId> 0xfC6153A6d0Cc40E17d9B48fE2fb1AACd9C63114e 10000000000000000 --rpc-url https://rpc.quicknode.testnet.arc.network/
-```
-
-Kết quả `true` — **để nó trên màn hình 2 giây**.
+**Hình:** cuộn tới **Live ledger**. Dừng cho thấy số lượt và bảng giao dịch. Bấm
+mở một dòng để lộ chi tiết.
 
 **Lời:**
-> The service says it was paid. That is not good enough. So we ask the
-> contract directly, and it answers true.
-> This is the check the service itself makes before it hands anything over.
-> One view call. No oracle, no webhook, no trust.
+> Every payment the service has verified on chain is listed here, publicly. Not
+> a demo counter — the same ledger the service reads before it serves anything.
 
 ---
 
-## Cảnh 6 — Vì sao Arc cần contract này (2:15 – 2:40)
+## Cảnh 6 — Kết (2:32 – 2:50)
 
-**Hình:** VS Code, `src/PaymentRouter.sol`, cuộn tới `pay()`.
-
-**Lời:**
-> On Arc, USDC is the native token. That makes payments fast and final, but
-> a native transfer carries no memo — so there is no way to tie money to an
-> invoice. That is why this contract exists. Forty lines. It binds every
-> payment to both the invoice and the recipient, forwards the funds in the
-> same transaction, and never holds them.
-> It is the smallest thing that makes the rail work on this chain, and it
-> would not be needed on any chain where USDC is an ERC-20.
-
----
-
-## Cảnh 7 — Cái lỗ mình tự tìm ra (2:40 – 3:00)
-
-**Hình:** VS Code, `test/PaymentRouter.t.sol`, cuộn tới
-`testFuzz_noStrangerCanBrickAnInvoice`. Rồi terminal chạy `forge test`, cho thấy **68 passed**.
+**Hình:** cuộn tới **Why Arc** rồi lên lại đầu trang.
 
 **Lời:**
-> One more thing, because it is the part I would want to know about.
-> Invoice ids are published in the clear. In an earlier version, anyone
-> could send one wei against someone else's invoice and make it permanently
-> unpayable. One wei, and the service goes down.
-> Payments are now keyed by invoice and recipient together, and they
-> accumulate instead of locking. This fuzz test states the property: no
-> stranger, at any amount, against any address, can stop an honest payment
-> from clearing. Sixty-eight tests, none of them touching the network.
-
-**Vì sao cảnh này quan trọng:** gần như mọi video hackathon chỉ trình bày đường đi thuận lợi. Tự nêu ra một lỗ hổng thật trong contract của chính mình, kèm test canh giữ nó, là thứ phân biệt người viết code sản xuất với người viết code trình diễn. Đừng bỏ cảnh này để tiết kiệm 20 giây.
-
----
-
-## Cảnh 8 — Kết (3:00 – 3:15)
-
-**Hình:** quay lại `arcpump.com/pay`, đứng ở hero.
-
-**Lời:**
-> Arc Pump. A pay-per-call rail for agents, in USDC on Arc. Live, on-chain,
-> and open source.
+> Arc Pump. A pay-per-call rail for agents, in USDC on Arc. Live, on chain, and
+> open source.
+>
 > Thanks for watching.
 
 **Overlay chữ ở cảnh cuối:**
@@ -154,18 +124,39 @@ PaymentRouter  0x8eB7e2A25C46938084d951985A5F87ad310A73Db
 
 ---
 
-## Những gì cố ý KHÔNG đưa vào
+## Nếu còn thời gian: một cảnh nữa đáng thêm
 
-- **Không có slide kiến trúc.** Mọi thứ đều là màn hình thật đang chạy. Một sơ đồ hộp-và-mũi-tên không chứng minh được gì mà ai cũng vẽ được.
-- **Không nhắc phần memecoin cũ.** Nó vẫn còn trong repo nhưng không thuộc bài nộp này; nhắc tới chỉ gây rối.
-- **Không có video giới thiệu đội.** Đó là trường riêng trong form, không phải phần của video demo.
-- **Không hứa hẹn tương lai.** Chỉ nói thứ đang chạy. Người chấm nghe "sắp tới chúng tôi sẽ…" cả ngày rồi.
+Sau cảnh 4, mở `test/PaymentRouter.t.sol` và chỉ vào
+`testFuzz_noStrangerCanBrickAnInvoice`.
 
-## Bảng kiểm trước khi nộp
+**Lời:**
+> One more thing, because it is the part I would want to know. Invoice ids
+> travel in the clear. In an earlier version, anyone could send one wei against
+> someone else's invoice and make it permanently unpayable — one wei, and the
+> service goes down.
+>
+> Payments are now keyed by invoice and recipient together, and they accumulate
+> instead of locking. This test states the property: no stranger, at any amount,
+> against any address, can stop an honest payment from clearing.
 
-- [ ] Video ≤ 3:30, tải lên YouTube **Unlisted**
-- [ ] Xem lại một lượt trên điện thoại — chữ terminal có đọc được không
-- [ ] Link video dán vào **Link to Demo Video**
-- [ ] **Live Demo Link** = `https://arcpump.com/pay`
-- [ ] **Track** = Agentic Economy
-- [ ] Ô Submission Details viết xong
+Gần như mọi video hackathon chỉ trình bày đường đi thuận lợi. Tự nêu một lỗ hổng
+trong contract của chính mình, kèm test canh giữ nó, là thứ phân biệt người viết
+code sản xuất với người viết code trình diễn.
+
+---
+
+## Những gì cố ý KHÔNG quay
+
+- **Không terminal.** Đây là lý do bản trước bị thay.
+- **Không sơ đồ kiến trúc.** Hộp-và-mũi-tên ai vẽ cũng được.
+- **Không nhắc phần memecoin cũ** còn trong repo — không thuộc bài nộp này.
+- **Không hứa hẹn tương lai.** Chỉ nói thứ đang chạy.
+
+## Bảng kiểm trước khi nộp — hạn 10/8 18:59
+
+- [ ] Video ≤ 3:00, YouTube **Unlisted**
+- [ ] Link video → ô **Link to Demo Video**
+- [ ] `https://arcpump.com/pay` → ô **Live Demo Link**
+- [ ] Track = **Agentic Economy**
+- [ ] Ô **Submission Details** — dán từ `SUBMISSION-DETAILS.md`
+- [ ] Bấm **Submit Checkpoint** (điền mà không bấm = chưa nộp)
