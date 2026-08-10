@@ -1,0 +1,1 @@
+Let's watch one cycle happen live. The agent wakes, reasons about its market, decides, and signs the transaction through Circle Wallets.

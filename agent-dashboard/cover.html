@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter+Tight:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FAFAF7; --paper2:#F4F4EE; --ink:#0a0a0a; --ink2:#2a2a2a;
+    --mute:#6b6b6b; --faint:#9a9a92; --line:#e5e5dd; --accent:#c2410c; --good:#166534;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+  html,body{ width:1200px; height:630px; background:var(--paper); overflow:hidden; }
+  .cover{ position:relative; width:1200px; height:630px; background:var(--paper);
+    font-family:"Inter Tight",system-ui,sans-serif; color:var(--ink); }
+  /* faint hairline grid — Bauhaus reference */
+  .grid{ position:absolute; inset:0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:40px 40px; opacity:.45; }
+  .frame{ position:absolute; inset:26px; border:1px solid var(--line); }
+  .content{ position:absolute; left:72px; top:96px; right:72px; z-index:3; }
+  .kicker{ font-family:"JetBrains Mono",monospace; font-size:14px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--mute); font-weight:500; display:flex; align-items:center; gap:11px; }
+  .dot{ width:9px; height:9px; border-radius:50%; background:var(--good); display:inline-block; box-shadow:0 0 0 4px rgba(22,101,52,.12); }
+  h1{ font-family:"Newsreader",Georgia,serif; font-weight:500; font-size:132px; line-height:.92;
+    letter-spacing:-.035em; margin:26px 0 0; color:var(--ink); }
+  h1 .dotmark{ color:var(--accent); }
+  .sub{ font-family:"Newsreader",Georgia,serif; font-size:27px; line-height:1.38; color:var(--ink2);
+    max-width:20ch; margin:30px 0 0; }
+  .foot{ position:absolute; left:72px; bottom:64px; right:72px; z-index:3;
+    font-family:"JetBrains Mono",monospace; font-size:15px; color:var(--mute);
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .foot b{ color:var(--ink2); font-weight:500; }
+  .sep{ color:var(--line); }
+  /* rising bonding-curve motif, bottom-right */
+  .curve{ position:absolute; right:0; bottom:0; width:640px; height:430px; z-index:2; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="grid"></div>
+  <svg class="curve" viewBox="0 0 640 430" fill="none" preserveAspectRatio="xMaxYMax meet">
+    <defs>
+      <linearGradient id="fill" x1="0" y1="430" x2="0" y2="60" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#c2410c" stop-opacity="0"/>
+        <stop offset="1" stop-color="#c2410c" stop-opacity="0.10"/>
+      </linearGradient>
+    </defs>
+    <path d="M40 412 C 210 408, 330 372, 430 280 C 512 205, 560 118, 600 40 L 640 40 L 640 430 L 40 430 Z" fill="url(#fill)"/>
+    <path d="M40 412 C 210 408, 330 372, 430 280 C 512 205, 560 118, 600 40" stroke="#c2410c" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="600" cy="40" r="7" fill="#c2410c"/>
+  </svg>
+  <div class="frame"></div>
+  <div class="content">
+    <div class="kicker"><span class="dot"></span> Live on Arc · Circle Stablecoin Commerce Stack</div>
+    <h1>Arc Pump<span class="dotmark">.</span></h1>
+    <p class="sub">An autonomous AI agent that runs a USDC-native launchpad on Arc.</p>
+  </div>
+  <div class="foot">
+    <b>arcpump.com</b>
+    <span class="sep">/</span> Claude reasoning
+    <span class="sep">/</span> Circle Programmable Wallets
+    <span class="sep">/</span> USDC settlement on Arc
+  </div>
+</div>
+</body>
+</html>

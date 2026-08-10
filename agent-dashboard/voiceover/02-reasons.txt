@@ -1,0 +1,1 @@
+What makes it different is that it reasons. Before each action, Claude reads the market and decides what to do — launch a new token, buy into an existing one, or claim fees. And it explains why, in plain English, right next to the transaction it produced.

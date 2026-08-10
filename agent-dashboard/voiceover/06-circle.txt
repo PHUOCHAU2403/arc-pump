@@ -1,0 +1,1 @@
+Circle does the heavy lifting. USDC is the native settlement rail on Arc, and Circle Programmable Wallets give the agent a secure way to sign every transaction itself. That combination is what makes a truly autonomous on-chain agent possible.

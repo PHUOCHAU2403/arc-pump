@@ -1,0 +1,1 @@
+And there it is. A real transaction, confirmed on Arc, settled in USDC, sent from the agent's own wallet. No human in the loop.

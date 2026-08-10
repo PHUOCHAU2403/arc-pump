@@ -1,0 +1,66 @@
+ARC PUMP — 3-MINUTE PITCH SCRIPT (read aloud, share screen: arcpump.com/pay)
+Speak a little slower than normal. Pause at each line break. Confidence > accent.
+
+------------------------------------------------------------------
+[0:00 — HOOK  ~15s]  (screen at the top of arcpump.com/pay)
+
+Hi everyone, I'm Hau, and this is Arc Pump.
+AI agents are starting to do real work.
+But there is one thing they still can't do on their own — pay for it.
+
+------------------------------------------------------------------
+[0:15 — PROBLEM  ~20s]
+
+When an agent needs an API, or data, or compute, it has to pay.
+But today's payments are built for humans — subscriptions, API keys, checkout with a card.
+None of that fits a machine that makes one call, once, with no human in the loop.
+
+------------------------------------------------------------------
+[0:35 — SOLUTION  ~20s]
+
+Arc Pump is the missing piece: a pay-per-call payment rail for agents.
+An agent pays per request, in USDC on Arc — metered, capped, and settled on-chain.
+Think "x402" — but real, and live. Let me show you.
+
+------------------------------------------------------------------
+[0:55 — LIVE DEMO  ~75s]   *** this is the star — go slow, point at things ***
+(scroll to "Don't take our word for it" and click  Run it → )
+
+I'll click "Run it."
+[Step 1 lights up] The agent calls a paid service and gets a 402 — Payment Required — with an invoice.
+[Step 2] Its Circle wallet pays that invoice on Arc, in native USDC.
+[the transaction hash appears] And there it is — a real transaction.
+(click the "your tx / view tx" link) This is on Arcscan. A real payment, on-chain.
+(come back to the page) The service verified it and returned the data.
+And look — (scroll to the live ledger) it just appeared in the live ledger. Every paid call is here, verified on-chain.
+(scroll to the budget simulator, drag a slider until it says "Blocked")
+And it's bounded. Every agent has a per-call cap and a budget.
+Push the price too high — and it refuses to pay. A guardrail, not a bug.
+
+------------------------------------------------------------------
+[2:10 — WHY IT MATTERS  ~15s]
+
+This is the missing rail for the agent economy.
+It's built on Circle Wallets and native USDC on Arc — safe signing, one-second settlement.
+And it's open — anyone can plug in their own agent or service.
+
+------------------------------------------------------------------
+[2:45 — CLOSE  ~15s]
+
+Arc Pump — agents paying for what they use.
+It's live right now, at arcpump dot com slash pay.
+Thank you.
+------------------------------------------------------------------
+
+
+IF THE DEMO IS SLOW OR FAILS (say this, stay calm, switch to the deck):
+"The demo is being a little shy — but it's live, you can try it yourself at arcpump.com/pay.
+Here's the flow." (show slide 4 of ArcPump-deck.pdf, walk the 3 steps, then continue.)
+
+
+BEFORE YOU PITCH — CHECKLIST:
+- Do ONE warm-up "Run it" ~30 seconds before you go on, so it's ready.
+- Then DON'T click again for at least ~20 seconds — there's a 15s cooldown; clicking too soon shows a rate-limit message live.
+- Have the "Run it" section already on screen so you don't scroll around.
+- Keep ArcPump-deck.pdf open in another tab as backup.
+- Read this whole script out loud 3–4 times and time yourself. Aim to finish by 3:00.

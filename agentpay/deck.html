@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0a0b0d;--bg2:#111318;--line:#20242c;--txt:#e8eaf0;--mut:#9aa3b2;--faint:#5c6473;--acc:#34d399;--acc2:#22d3ee}
+  @page{ size:297mm 167mm; margin:0 } /* 16:9-ish landscape */
+  *{box-sizing:border-box;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{background:var(--bg);color:var(--txt);font-family:"Inter",system-ui,sans-serif}
+  .s{width:297mm;height:167mm;padding:20mm 22mm;position:relative;overflow:hidden;page-break-after:always;display:flex;flex-direction:column;justify-content:center;background:var(--bg)}
+  .s:last-child{page-break-after:auto}
+  .glow{position:absolute;top:-40mm;right:-30mm;width:150mm;height:120mm;border-radius:50%;background:radial-gradient(closest-side,rgba(52,211,153,.14),transparent 70%);pointer-events:none}
+  .mono{font-family:"JetBrains Mono",monospace}
+  .kick{font-family:"JetBrains Mono",monospace;font-size:11pt;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  h1{font-family:"Space Grotesk",sans-serif;font-weight:600;letter-spacing:-.03em;line-height:1.02}
+  .grad{background:linear-gradient(100deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .foot{position:absolute;left:22mm;bottom:12mm;font-family:"JetBrains Mono",monospace;font-size:9pt;color:var(--faint)}
+  .pageno{position:absolute;right:22mm;bottom:12mm;font-family:"JetBrains Mono",monospace;font-size:9pt;color:var(--faint)}
+  .lead{color:var(--mut);font-size:15pt;line-height:1.5;max-width:60ch;margin-top:6mm}
+  .big{font-family:"Space Grotesk";font-weight:600;font-size:30pt;letter-spacing:-.02em;line-height:1.1}
+  .cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5mm;margin-top:10mm}
+  .card{background:var(--bg2);border:1px solid var(--line);border-radius:5mm;padding:7mm}
+  .card .n{font-family:"JetBrains Mono";color:var(--acc);font-size:12pt}
+  .card .t{font-family:"Space Grotesk";font-weight:600;font-size:14pt;margin:4mm 0 2mm}
+  .card .d{color:var(--mut);font-size:11pt;line-height:1.45}
+  .stat{font-family:"JetBrains Mono";font-size:34pt;font-weight:500;color:var(--acc)}
+  .row{display:flex;gap:8mm;margin-top:10mm}
+  .metric .l{color:var(--faint);font-size:10.5pt;text-transform:uppercase;letter-spacing:.1em;margin-top:2mm}
+  code{font-family:"JetBrains Mono";color:var(--acc2);font-size:11pt}
+  ul{margin:6mm 0 0;padding-left:6mm;color:var(--mut);font-size:13.5pt;line-height:1.8}
+  ul b{color:var(--txt)}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2mm 5mm;color:var(--mut);font-family:"JetBrains Mono";font-size:9.5pt;letter-spacing:.05em}
+</style></head><body>
+
+<!-- 1 title -->
+<section class="s"><div class="glow"></div>
+  <div class="tag">● Live on Arc · settled in USDC</div>
+  <h1 style="font-size:52pt;margin-top:8mm">Arc&nbsp;Pump</h1>
+  <h1 class="grad" style="font-size:34pt;margin-top:3mm">Pay-per-call payments<br>for AI agents.</h1>
+  <div class="lead">The payment rail where autonomous agents pay per request in USDC on Arc — metered, capped, settled and verified on-chain. No subscriptions, no humans.</div>
+  <div class="foot">arcpump.com/pay</div><div class="pageno">Remix AI Bootcamp · Encode Club</div>
+</section>
+
+<!-- 2 problem -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">The problem</div>
+  <div class="big" style="margin-top:6mm">AI agents can&rsquo;t pay for what they use.</div>
+  <div class="lead">Agents are exploding — and they increasingly need to buy things on their own: APIs, data, compute, tools. But today&rsquo;s payment models were built for humans:</div>
+  <ul>
+    <li><b>Subscriptions & API keys</b> don&rsquo;t fit a machine that makes one call, once.</li>
+    <li><b>Cards & human checkout</b> need a person in the loop — the opposite of autonomy.</li>
+    <li>There&rsquo;s <b>no clean, metered, per-request rail</b> for agent-to-service payments.</li>
+  </ul>
+  <div class="pageno">2</div>
+</section>
+
+<!-- 3 solution -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">The solution</div>
+  <div class="big" style="margin-top:6mm">Pay-per-call, in USDC on Arc.</div>
+  <div class="lead">An x402-style rail: an agent hits a paid resource, gets a <code>402 Payment Required</code> + an invoice, and its wallet pays that invoice in native USDC through an on-chain router. The service verifies the payment on-chain, then serves the response.</div>
+  <ul>
+    <li><b>Metered</b> — pay exactly per request, down to a cent.</li>
+    <li><b>Bounded</b> — every agent runs under a per-call cap and a total budget.</li>
+    <li><b>Verifiable</b> — every payment is a real, invoice-bound tx on Arc.</li>
+  </ul>
+  <div class="pageno">3</div>
+</section>
+
+<!-- 4 how -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">How it works</div>
+  <div class="big" style="margin-top:6mm">Three steps.</div>
+  <div class="cards">
+    <div class="card"><div class="n">01 · Request</div><div class="t">402 + invoice</div><div class="d">Agent calls the resource; the service replies with a price, an invoice id, and where to pay.</div></div>
+    <div class="card"><div class="n">02 · Pay</div><div class="t">router.pay(...)</div><div class="d">The agent&rsquo;s Circle wallet pays the invoice in native USDC through the on-chain PaymentRouter — within its caps.</div></div>
+    <div class="card"><div class="n">03 · Unlock</div><div class="t">verified → 200</div><div class="d">The service checks the router in one view call (invoice + recipient bound), then serves the data. One payment, one call.</div></div>
+  </div>
+  <div class="pageno">4</div>
+</section>
+
+<!-- 5 real -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">Not a mockup</div>
+  <div class="big" style="margin-top:6mm">It&rsquo;s live, and it&rsquo;s real.</div>
+  <div class="lead">On <code>arcpump.com/pay</code> anyone can click <b>&ldquo;Run it&rdquo;</b> and watch a real AI agent pay 0.01 USDC on Arc to unlock a resource — step by step, with the on-chain tx. Or connect a wallet and pay it yourself.</div>
+  <div class="row">
+    <div class="metric"><div class="stat">402→200</div><div class="l">full flow, on-chain</div></div>
+    <div class="metric"><div class="stat">live</div><div class="l">ledger of every paid call</div></div>
+    <div class="metric"><div class="stat">capped</div><div class="l">per-call + budget guardrails</div></div>
+  </div>
+  <div class="pageno">5</div>
+</section>
+
+<!-- 6 tech -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">Built on</div>
+  <div class="big" style="margin-top:6mm">The stack.</div>
+  <ul>
+    <li><b>PaymentRouter</b> — a small Solidity contract on Arc that binds each payment to an invoice + recipient (native USDC has no memo). <code>0x42bCE0…28ff</code></li>
+    <li><b>Circle Programmable Wallets</b> (MPC) — agents sign autonomously; no raw private key on any server.</li>
+    <li><b>Native USDC on Arc</b> — payments are plain value transfers, final in ~1 second.</li>
+    <li><b>Next.js + Cloudflare Workers</b> — the landing, the service wrapper (402), and the pay-client SDK.</li>
+  </ul>
+  <div class="pageno">6</div>
+</section>
+
+<!-- 7 close -->
+<section class="s"><div class="glow"></div>
+  <div class="kick">Try it</div>
+  <h1 class="grad" style="font-size:38pt;margin-top:8mm">Agents paying for<br>what they use.</h1>
+  <div class="lead">Live demo &amp; interactive playground:</div>
+  <div class="big" style="font-size:22pt;color:var(--acc);margin-top:3mm">arcpump.com/pay</div>
+  <div class="lead" style="margin-top:8mm">Arc Pump — the pay-per-call payment rail for AI agents, in USDC on Arc.<br>Built for the Remix AI Bootcamp (Encode Club).</div>
+  <div class="pageno">7</div>
+</section>
+
+</body></html>

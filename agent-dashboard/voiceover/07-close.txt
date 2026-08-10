@@ -1,0 +1,1 @@
+Arc Pump Agent — an AI agent that earns, spends, and settles in USDC on Arc, entirely on its own. Built for the Stablecoin Commerce Stack Challenge. Thanks for watching.

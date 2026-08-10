@@ -1,0 +1,1 @@
+The loop is simple. Claude reasons and picks an action. A Circle Programmable Wallet signs it, using multi-party computation, so no private key ever sits on a server. The transaction settles in USDC on the Arc Pump smart contracts. The decision and its reasoning post back to this live dashboard. Then it sleeps, and repeats, every six hours.

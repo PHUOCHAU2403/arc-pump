@@ -40,6 +40,9 @@
   --acc: #c2410c;
   --acc-soft: #fed7aa;
   --good: #166534;
+  /* Status dot only. --good (green-800) is the right weight for a word of text
+     but goes muddy at 7px, so the indicator sits two steps brighter. */
+  --live: #15803d;
   --bad: #991b1b;
 
   position: relative;
@@ -70,7 +73,11 @@
 .tag { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-mono), monospace;
   font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-mute);
   border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; background: var(--paper-soft); }
-.live { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); display: inline-block;
+/* Green, not accent orange: this dot is a status light, and every other status
+   light on the web is green when a thing is up. Orange read as brand colour, so
+   "Live on Arc" was a claim rather than an indicator. */
+.live { width: 7px; height: 7px; border-radius: 50%; background: var(--live); display: inline-block;
+  box-shadow: 0 0 0 3px rgb(21 128 61 / 0.14);
   animation: pp-pulse 2.2s ease-in-out infinite; flex: none; }
 @keyframes pp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .hero h1 { font-family: var(--font-display), Georgia, serif; font-weight: 500; letter-spacing: -0.04em;

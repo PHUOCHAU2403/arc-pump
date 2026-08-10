@@ -1,0 +1,38 @@
+To: giles@encode.club
+Subject: Re: Remix AI Bootcamp — Final Chance to Submit: Arc Pump
+
+Hi Giles,
+
+Thank you so much for holding the door open — I really appreciate it. Here is everything for Arc Pump:
+
+1. Challenge Explanation
+I built under the Freestyle challenge. Arc Pump is agentic payment infrastructure with real-world impact: as AI agents start doing real work, they need to pay for the services they consume — APIs, data, compute — autonomously, which today's subscriptions and human checkout can't do. Arc Pump gives agents a pay-per-call rail: they pay per request in USDC on Arc, metered and bounded. That's the bootcamp's "real-world impact" applied to the emerging agent economy.
+
+2. Submission Details
+Arc Pump is a working pay-per-call payment rail for AI agents, live on Arc.
+- Flow: an agent hits a paywalled service, gets 402 Payment Required plus an invoice, its wallet pays the invoice in native USDC through an on-chain PaymentRouter, then the service verifies the payment on-chain and serves the response (x402-style).
+- I built all three sides: a Solidity PaymentRouter contract on Arc (it binds each payment to an invoice and recipient, since native USDC has no memo field), a service wrapper that issues the 402s and verifies on-chain, and a pay-client SDK with per-call and total-budget guardrails so an agent can't overspend.
+- It is live and interactive at arcpump.com/pay: anyone can click "Run it" and watch a real AI agent pay 0.01 USDC on Arc to unlock a resource — step by step, with the on-chain transaction — or connect a wallet and pay it themselves. A live ledger shows every paid call.
+- Signing is via Circle Programmable Wallets (MPC — no raw private key), and USDC is native on Arc (final in about 1 second). Built with Next.js and Cloudflare Workers, AI-assisted throughout.
+- Key achievement: a genuinely autonomous, on-chain, verifiable agent payment — click a button on the web and a real stablecoin payment settles on Arc, with no human in the loop.
+
+3. Link to Code
+https://github.com/PHUOCHAU2403/arc-pump
+Heads up: my GitHub account is temporarily suspended (an automated false-positive on a new, very active account; appeal in progress), so this link may return 404 right now. I've attached the full source as arc-pump-code.zip so you have it either way.
+
+4. Link to Presentation
+Attached: ArcPump-deck.pdf (7-slide deck).
+
+5. Link to Demo Video
+PASTE YOUR YOUTUBE OR LOOM URL HERE
+
+6. Live Demo Link
+https://arcpump.com/pay
+
+7. Submission Files
+Attached: arc-pump-code.zip (full source) and ArcPump-deck.pdf (deck).
+
+Thanks again for the second chance — it means a lot.
+
+Best,
+Hau (Nguyen Phuoc Hau)
